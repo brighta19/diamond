@@ -1,0 +1,20 @@
+name: diamond
+description: A compositor using the waybright library
+version: 1.0.0
+repository: https://github.com/brighta19/diamond
+
+environment:
+  sdk: '>=2.19.6 <3.0.0'
+
+dependencies:
+  waybright:
+    git:
+      url: git@github.com:brighta19/waybright.git
+      ref: dev
+    # path: '../waybright'
+
+dev_dependencies:
+  lints: ^2.0.0
+  test: ^1.21.0
+
+publish_to: none
