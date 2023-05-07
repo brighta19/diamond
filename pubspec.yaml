@@ -9,8 +9,8 @@ environment:
 dependencies:
   waybright:
     git:
-      url: git@github.com:brighta19/waybright.git
-      ref: dev
+      url: https://github.com/brighta19/waybright.git
+      ref: 2392cd29820588a234135bea5253349936f656b9
     # path: '../waybright'
 
 dev_dependencies:

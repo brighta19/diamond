@@ -20,7 +20,7 @@ const backgroundColors = [
 
 const wallpaperImagePath = "../assets/cubes.png";
 
-Socket? socket;
+Waybright? diamond;
 
 Image? wallpaperImage;
 
@@ -362,7 +362,7 @@ void initializeMonitor(Monitor monitor) {
   if (preferredMode != null) monitor.mode = preferredMode;
   monitor.enable();
 
-  monitor.setEventHandler("remove", () {
+  monitor.onRemove = (event) {
     monitors.remove(monitor);
     print("A 📺 monitor has been removed!");
     print("- Name: '${monitor.name}'");
@@ -370,7 +370,7 @@ void initializeMonitor(Monitor monitor) {
     if (monitor == currentMonitor) {
       currentMonitor = monitors.isEmpty ? null : monitors.first;
     }
-  });
+  };
 
   monitor.renderer.backgroundColor =
       backgroundColors[(monitors.length - 1) % backgroundColors.length];
@@ -381,18 +381,19 @@ void initializeMonitor(Monitor monitor) {
     cursor.x = monitor.mode.width / 2;
     cursor.y = monitor.mode.height / 2;
 
-    monitor.setEventHandler("frame", handleCurrentMonitorFrame);
+    monitor.onFrame = (event) => handleCurrentMonitorFrame();
   } else {
     var renderer = monitor.renderer;
 
-    monitor.setEventHandler("frame", () {
+    monitor.onFrame = (event) {
       renderer.fillStyle = 0xffdd66ff;
       renderer.fillRect(50, 50, 100, 100);
-    });
+    };
   }
 }
 
-void handleNewMonitor(Monitor monitor) {
+void handleNewMonitor(NewMonitorEvent event) {
+  Monitor monitor = event.monitor;
   monitors.add(monitor);
 
   print("A 📺 monitor has been added!");
@@ -404,15 +405,15 @@ void initializeWindow(Window window) {
   final appId = window.appId;
   final title = window.title;
 
-  window.setEventHandler("show", () {
+  window.onShow = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " shown!");
 
     focusWindow(window);
-  });
+  };
 
-  window.setEventHandler("hide", () {
+  window.onHide = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " hidden!");
@@ -423,10 +424,10 @@ void initializeWindow(Window window) {
       var nextWindow = windows.getNextWindow(window);
       if (nextWindow != null) focusWindow(nextWindow);
     }
-  });
+  };
 
   // The window wants to be moved, which has to be handled manually.
-  window.setEventHandler("move", (WindowMoveEvent event) {
+  window.onMove = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " moved!");
@@ -438,10 +439,10 @@ void initializeWindow(Window window) {
     windowDrawingPositionAtGrab.y = window.drawingY;
 
     focusWindow(window);
-  });
+  };
 
   // The window wants to be resized, which has to be handled manually.
-  window.setEventHandler("resize", (WindowResizeEvent event) {
+  window.onResize = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " resized!");
@@ -457,10 +458,10 @@ void initializeWindow(Window window) {
       windowHeightAtGrab = window.contentHeight;
       edgeOfWindowResize = event.edge;
     }
-  });
+  };
 
   // The window wants to be maximize, which has to be handled manually.
-  window.setEventHandler("maximize", (WindowMaximizeEvent event) {
+  window.onMaximize = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " ${window.isMaximized ? "un" : ""}maximized!");
@@ -470,10 +471,10 @@ void initializeWindow(Window window) {
     } else {
       startMaximizingWindow(window);
     }
-  });
+  };
 
   // The window wants to be fullscreened, which has to be handled manually.
-  window.setEventHandler("fullscreen", (WindowFullscreenEvent event) {
+  window.onFullscreen = (event) {
     print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
         " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
         " ${window.isFullscreen ? "un" : ""}fullscreened!");
@@ -483,17 +484,18 @@ void initializeWindow(Window window) {
     } else {
       startFullscreeningWindow(window);
     }
-  });
+  };
 
-  window.setEventHandler("remove", () {
+  window.onRemove = (event) {
     windows.remove(window);
 
     print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
         "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
-  });
+  };
 }
 
-void handleNewWindow(Window window) {
+void handleNewWindow(NewWindowEvent event) {
+  Window window = event.window;
   windows.addToFront(window);
 
   final appId = window.appId;
@@ -626,7 +628,7 @@ void handlePointerMovement(PointerMoveEvent event) {
 }
 
 void handleNewPointer(PointerDevice pointer) {
-  pointer.setEventHandler("move", (PointerRelativeMoveEvent event) {
+  pointer.onMove = (event) {
     var monitor = currentMonitor;
     if (monitor == null) return;
 
@@ -635,8 +637,8 @@ void handleNewPointer(PointerDevice pointer) {
     cursor.y = (cursor.y + event.deltaY * speed).clamp(0, monitor.mode.height);
 
     handlePointerMovement(event);
-  });
-  pointer.setEventHandler("teleport", (PointerAbsoluteMoveEvent event) {
+  };
+  pointer.onTeleport = (event) {
     var monitor = currentMonitor;
     if (monitor == null || event.monitor != monitor) return;
 
@@ -644,8 +646,8 @@ void handleNewPointer(PointerDevice pointer) {
     cursor.y = event.y.clamp(0, monitor.mode.height);
 
     handlePointerMovement(event);
-  });
-  pointer.setEventHandler("button", (PointerButtonEvent event) {
+  };
+  pointer.onButton = (event) {
     Window? currentlyHoveredWindow = getWindowAtPoint(cursor.x, cursor.y);
     hoveredWindow = currentlyHoveredWindow;
 
@@ -706,8 +708,8 @@ void handleNewPointer(PointerDevice pointer) {
       isFocusedWindowFocusedFromPointer = false;
       isBackgroundFocusedFromPointer = false;
     }
-  });
-  pointer.setEventHandler("axis", (PointerAxisEvent event) {
+  };
+  pointer.onAxis = (event) {
     Window? currentlyHoveredWindow = getWindowAtPoint(cursor.x, cursor.y);
 
     if (currentlyHoveredWindow != null) {
@@ -718,12 +720,12 @@ void handleNewPointer(PointerDevice pointer) {
         (cursor.y - currentlyHoveredWindow.drawingY).toDouble(),
       ));
     }
-  });
-  pointer.setEventHandler("remove", () {
+  };
+  pointer.onRemove = (event) {
     inputDevices.remove(pointer);
     print("A 🖱️ pointer has been removed!");
     print("- Name: '${pointer.name}'");
-  });
+  };
 }
 
 void handleWindowSwitching(KeyboardDevice keyboard) {
@@ -780,13 +782,18 @@ void updateKeys(KeyboardKeyEvent event) {
   }
 }
 
+void quit() {
+  diamond?.closeSocket();
+  print("~~~ Socket closed ~~~");
+}
+
 void handleNewKeyboard(KeyboardDevice keyboard) {
-  keyboard.setEventHandler("key", (KeyboardKeyEvent event) {
+  keyboard.onKey = (event) {
     updateKeys(event);
 
     if (event.key == InputDeviceButton.escape && event.isPressed) {
       if (readyToQuit) {
-        socket?.close();
+        quit();
       } else if (isAltKeyPressed) {
         readyToQuit = true;
       }
@@ -811,8 +818,8 @@ void handleNewKeyboard(KeyboardDevice keyboard) {
         event,
       ));
     }
-  });
-  keyboard.setEventHandler("modifiers", (KeyboardModifiersEvent event) {
+  };
+  keyboard.onModifiers = (event) {
     var window = focusedWindow;
     if (window == null) return;
 
@@ -820,15 +827,15 @@ void handleNewKeyboard(KeyboardDevice keyboard) {
       keyboard,
       event,
     ));
-  });
-  keyboard.setEventHandler("remove", () {
+  };
+  keyboard.onRemove = (event) {
     inputDevices.remove(keyboard);
     print("A ⌨️ keyboard has been removed!");
     print("- Name: '${keyboard.name}'");
-  });
+  };
 }
 
-void handleNewInput(InputNewEvent event) {
+void handleNewInput(NewInputEvent event) {
   var pointer = event.pointer;
   var keyboard = event.keyboard;
 
@@ -848,21 +855,24 @@ void handleNewInput(InputNewEvent event) {
 }
 
 void main(List<String> arguments) async {
-  var waybright = Waybright();
+  var diamond0 = Waybright();
+  diamond = diamond0;
 
-  waybright.setEventHandler("monitor-new", handleNewMonitor);
-  waybright.setEventHandler("window-new", handleNewWindow);
-  waybright.setEventHandler("input-new", handleNewInput);
+  diamond0.onNewMonitor = handleNewMonitor;
+  diamond0.onNewWindow = handleNewWindow;
+  diamond0.onNewInput = handleNewInput;
 
   try {
     print("Loading 🖼️ wallpaper '$wallpaperImagePath'...");
-    wallpaperImage = await waybright.loadPngImage(wallpaperImagePath);
+    wallpaperImage = await diamond0.loadPngImage(wallpaperImagePath);
   } catch (e) {
     stderr.writeln("Failed to load 🖼️ wallpaper '$wallpaperImagePath': $e");
   }
 
-  socket = await waybright.openSocket();
-  print("~~~ Socket opened on '${socket!.name}' ~~~");
-  socket!.runEventLoop();
-  print("~~~ Socket closed ~~~");
+  try {
+    var socketName = diamond0.openSocket();
+    print("~~~ Socket opened on '$socketName' ~~~");
+  } catch (e) {
+    print(e);
+  }
 }
