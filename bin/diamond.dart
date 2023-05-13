@@ -13,11 +13,17 @@ class Vector {
   Vector(this.x, this.y);
 }
 
+class NoMonitorFoundException implements Exception {
+  @override
+  String toString() => "No monitor found!";
+}
+
 const backgroundColors = [
   0x333355ff,
   0xffaaaaff,
 ];
 
+const terminalProgram = "weston-terminal";
 const wallpaperImagePath = "../assets/cubes.png";
 
 Waybright? diamond;
@@ -30,9 +36,6 @@ var popups = <Window, WindowList>{};
 var inputDevices = <InputDevice>[];
 
 Monitor? currentMonitor;
-
-Window? focusedWindow;
-Window? hoveredWindow;
 
 var isFocusedWindowFocusedFromPointer = false;
 var isBackgroundFocusedFromPointer = false;
@@ -61,13 +64,16 @@ var readyToQuit = false;
 
 var isLeftAltKeyPressed = false;
 var isRightAltKeyPressed = false;
-get isAltKeyPressed => isLeftAltKeyPressed || isRightAltKeyPressed;
+bool get isAltKeyPressed => isLeftAltKeyPressed || isRightAltKeyPressed;
 var isLeftShiftKeyPressed = false;
 var isRightShiftKeyPressed = false;
-get isShiftKeyPressed => isLeftShiftKeyPressed || isRightShiftKeyPressed;
+bool get isShiftKeyPressed => isLeftShiftKeyPressed || isRightShiftKeyPressed;
 
-get shouldSubmitPointerMoveEvents =>
+bool get shouldSubmitPointerMoveEvents =>
     !isSwitchingWindows && !isBackgroundFocusedFromPointer;
+
+Window? focusedWindow;
+Window? get hoveredWindow => getHoveredWindowFromList(windows);
 
 double getDistanceBetweenPoints(Vector point1, Vector point2) {
   var x = point1.x - point2.x;
@@ -98,7 +104,7 @@ void unfocusWindow() {
 
 void startMaximizingWindow(Window window) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   isMaximizingFocusedWindow = true;
   if (window.isFullscreen) {
@@ -110,7 +116,7 @@ void startMaximizingWindow(Window window) {
 
 void startUnmaximizingWindow(Window window) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   isUnmaximizingFocusedWindow = true;
   var width = (monitor.mode.width * 0.5).toInt();
@@ -120,7 +126,7 @@ void startUnmaximizingWindow(Window window) {
 
 void startFullscreeningWindow(Window window) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   isFullscreeningFocusedWindow = true;
   if (window.isMaximized) {
@@ -132,7 +138,7 @@ void startFullscreeningWindow(Window window) {
 
 void startUnfullscreeningWindow(Window window) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   isUnfullscreeningFocusedWindow = true;
   var width = (monitor.mode.width * 0.5).toInt();
@@ -161,10 +167,6 @@ Window? getHoveredWindowFromList(WindowList windows) {
   }
 
   return null;
-}
-
-Window? getHoveredWindow() {
-  return getHoveredWindowFromList(windows);
 }
 
 void drawCursor(Renderer renderer) {
@@ -213,7 +215,6 @@ void drawPopups(Renderer renderer, Window window) {
 }
 
 void drawWindows(Renderer renderer) {
-  var borderWidth = 2;
   var numberOfWindows = windows.length;
 
   if (numberOfWindows == 0) return;
@@ -263,7 +264,7 @@ void drawWindow(Renderer renderer, Window window, int borderColor) {
 
 void updateWindowPosition(Window window) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   var x = 0;
   var y = 0;
@@ -326,7 +327,7 @@ void handleUpdates() {
 
 void drawWallpaper(Renderer renderer) {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   if (wallpaperImage != null) {
     var monitorWidth = monitor.mode.width;
@@ -347,7 +348,7 @@ void drawWallpaper(Renderer renderer) {
 
 void handleCurrentMonitorFrame() {
   var monitor = currentMonitor;
-  if (monitor == null) return;
+  if (monitor == null) throw NoMonitorFoundException();
 
   handleUpdates();
 
@@ -512,6 +513,8 @@ void initializeWindow(Window window) {
 }
 
 void handleNewPopup(NewPopupWindowEvent event) {
+  print("A 🪟 popup window has been added!");
+
   var window = event.window;
   var parent = window.parent;
   if (parent == null) return;
@@ -562,21 +565,13 @@ void handleWindowHover(PointerMoveEvent event) {
     return;
   }
 
-  Window? currentlyHoveredWindow = getHoveredWindow();
-  if (currentlyHoveredWindow != null) {
-    if (currentlyHoveredWindow != hoveredWindow) {
-      hoveredWindow = currentlyHoveredWindow;
-    }
-
-    currentlyHoveredWindow.submitPointerMoveUpdate(PointerUpdate(
-      pointer,
-      event,
-      (cursor.x - currentlyHoveredWindow.drawingX).toDouble(),
-      (cursor.y - currentlyHoveredWindow.drawingY).toDouble(),
-    ));
-  } else {
-    hoveredWindow = null;
-  }
+  Window? hoveredWindow_ = hoveredWindow;
+  hoveredWindow_?.submitPointerMoveUpdate(PointerUpdate(
+    pointer,
+    event,
+    (cursor.x - hoveredWindow_.drawingX).toDouble(),
+    (cursor.y - hoveredWindow_.drawingY).toDouble(),
+  ));
 }
 
 void handleWindowMove() {
@@ -665,10 +660,18 @@ void handlePointerMovement(PointerMoveEvent event) {
   }
 }
 
+void focusOnBackground() {
+  if (focusedWindow != null) {
+    unfocusWindow();
+    print("Removed 🪟 window 🔎 focus.");
+  }
+  isBackgroundFocusedFromPointer = true;
+}
+
 void handleNewPointer(PointerDevice pointer) {
   pointer.onMove = (event) {
     var monitor = currentMonitor;
-    if (monitor == null) return;
+    if (monitor == null) throw NoMonitorFoundException();
 
     var speed = 0.5; // my preference
     cursor.x = (cursor.x + event.deltaX * speed).clamp(0, monitor.mode.width);
@@ -678,7 +681,8 @@ void handleNewPointer(PointerDevice pointer) {
   };
   pointer.onTeleport = (event) {
     var monitor = currentMonitor;
-    if (monitor == null || event.monitor != monitor) return;
+    if (monitor == null) throw NoMonitorFoundException();
+    if (event.monitor != monitor) return;
 
     cursor.x = event.x.clamp(0, monitor.mode.width);
     cursor.y = event.y.clamp(0, monitor.mode.height);
@@ -686,16 +690,11 @@ void handleNewPointer(PointerDevice pointer) {
     handlePointerMovement(event);
   };
   pointer.onButton = (event) {
-    Window? currentlyHoveredWindow = getHoveredWindow();
-    hoveredWindow = currentlyHoveredWindow;
+    Window? hoveredWindow_ = hoveredWindow;
 
-    if (currentlyHoveredWindow == null) {
+    if (hoveredWindow_ == null) {
       if (event.isPressed) {
-        if (focusedWindow != null) {
-          unfocusWindow();
-          print("Removed 🪟 window 🔎 focus.");
-        }
-        isBackgroundFocusedFromPointer = true;
+        focusOnBackground();
       } else {
         if (isFocusedWindowFocusedFromPointer) {
           var window = focusedWindow;
@@ -711,18 +710,18 @@ void handleNewPointer(PointerDevice pointer) {
       }
     } else {
       if (event.isPressed) {
-        if (currentlyHoveredWindow.isPopup) {
-          currentlyHoveredWindow.focus();
-          focusedWindow = currentlyHoveredWindow;
-        } else if (focusedWindow != currentlyHoveredWindow) {
-          focusWindow(currentlyHoveredWindow);
+        if (hoveredWindow_.isPopup) {
+          hoveredWindow_.focus();
+          focusedWindow = hoveredWindow_;
+        } else if (focusedWindow != hoveredWindow_) {
+          focusWindow(hoveredWindow_);
         }
 
-        currentlyHoveredWindow.submitPointerButtonUpdate(PointerUpdate(
+        hoveredWindow_.submitPointerButtonUpdate(PointerUpdate(
           pointer,
           event,
-          (cursor.x - currentlyHoveredWindow.drawingX).toDouble(),
-          (cursor.y - currentlyHoveredWindow.drawingY).toDouble(),
+          (cursor.x - hoveredWindow_.drawingX).toDouble(),
+          (cursor.y - hoveredWindow_.drawingY).toDouble(),
         ));
         isFocusedWindowFocusedFromPointer = true;
       } else {
@@ -751,16 +750,13 @@ void handleNewPointer(PointerDevice pointer) {
     }
   };
   pointer.onAxis = (event) {
-    Window? currentlyHoveredWindow = getHoveredWindow();
-
-    if (currentlyHoveredWindow != null) {
-      currentlyHoveredWindow.submitPointerAxisUpdate(PointerUpdate(
-        pointer,
-        event,
-        (cursor.x - currentlyHoveredWindow.drawingX).toDouble(),
-        (cursor.y - currentlyHoveredWindow.drawingY).toDouble(),
-      ));
-    }
+    Window? hoveredWindow_ = hoveredWindow;
+    hoveredWindow_?.submitPointerAxisUpdate(PointerUpdate(
+      pointer,
+      event,
+      (cursor.x - hoveredWindow_.drawingX).toDouble(),
+      (cursor.y - hoveredWindow_.drawingY).toDouble(),
+    ));
   };
   pointer.onRemove = (event) {
     inputDevices.remove(pointer);
@@ -782,25 +778,22 @@ void handleWindowSwitching(KeyboardDevice keyboard) {
   }
 
   if (windows.isNotEmpty) {
-    var index = 0;
-    for (var window in tempWindowList) {
-      if (index == windowSwitchIndex) {
-        focusWindow(window);
-        break;
-      }
-
-      index++;
+    try {
+      var window = tempWindowList.elementAt(windowSwitchIndex);
+      focusWindow(window);
+    } catch (e) {
+      print(e);
     }
   }
 }
 
-void launchWestonTerminal() {
+void launchTerminal() {
   Isolate.run(() {
-    print("Launching 🖥️ Weston Terminal...");
+    print("Launching 🖥️ Terminal '$terminalProgram' ...");
     try {
-      Process.runSync("weston-terminal", []);
+      Process.runSync(terminalProgram, []);
     } catch (e) {
-      stderr.writeln("Failed to launch 🖥️ Weston Terminal: $e");
+      stderr.writeln("Failed to launch 🖥️ '$terminalProgram': $e");
     }
   });
 }
@@ -844,7 +837,7 @@ void handleNewKeyboard(KeyboardDevice keyboard) {
       }
     } else if (event.key == InputDeviceButton.keyT && event.isPressed) {
       if (isAltKeyPressed) {
-        launchWestonTerminal();
+        launchTerminal();
       }
     }
 
