@@ -906,6 +906,18 @@ void main(List<String> arguments) async {
   try {
     var socketName = diamond0.openSocket();
     print("~~~ Socket opened on '$socketName' ~~~");
+
+    if (arguments.length == 2) {
+      if (arguments[0] == "-p") {
+        var program = arguments[1];
+        print("Running program '$program' ...");
+        try {
+          Isolate.run(() => Process.runSync(program, []));
+        } catch (e) {
+          stderr.writeln("Failed to run program '$program': $e");
+        }
+      }
+    }
   } catch (e) {
     print(e);
   }
