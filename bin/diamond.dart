@@ -26,6 +26,7 @@ Image? wallpaperImage;
 
 var monitors = <Monitor>[];
 var windows = WindowList();
+var popups = <Window, WindowList>{};
 var inputDevices = <InputDevice>[];
 
 Monitor? currentMonitor;
@@ -139,24 +140,31 @@ void startUnfullscreeningWindow(Window window) {
   window.unfullscreen(width: width, height: height);
 }
 
-Window? getWindowAtPoint(num x, num y) {
-  var list = windows.frontToBackIterable;
-  for (var window in list) {
-    if (!window.isVisible) continue;
+bool isCursorOnWindow(Window window) {
+  return window.contentX <= cursor.x &&
+      window.contentY <= cursor.y &&
+      window.contentX + window.contentWidth >= cursor.x &&
+      window.contentY + window.contentHeight >= cursor.y;
+}
 
-    var windowX = window.contentX;
-    var windowY = window.contentY;
-    var windowWidth = window.contentWidth;
-    var windowHeight = window.contentHeight;
+Window? getHoveredWindowFromList(WindowList windows) {
+  var listIterable = windows.frontToBackIterable;
+  for (var window in listIterable) {
+    var popupList = popups[window];
 
-    if (x >= windowX &&
-        x < windowX + windowWidth &&
-        y >= windowY &&
-        y < windowY + windowHeight) {
-      return window;
+    if (popupList != null) {
+      var popup = getHoveredWindowFromList(popupList);
+      if (popup != null) return popup;
     }
+
+    if (isCursorOnWindow(window)) return window;
   }
+
   return null;
+}
+
+Window? getHoveredWindow() {
+  return getHoveredWindowFromList(windows);
 }
 
 void drawCursor(Renderer renderer) {
@@ -194,6 +202,16 @@ void drawBorder(Renderer renderer, num x, num y, int width, int height,
   renderer.fillRect(x0, y0 + borderWidth, borderWidth, height0 - borderWidth);
 }
 
+void drawPopups(Renderer renderer, Window window) {
+  var list = popups[window]?.backToFrontIterable;
+  if (list == null) return;
+
+  for (var popup in list) {
+    renderer.drawWindow(popup, popup.drawingX, popup.drawingY);
+    drawPopups(renderer, popup);
+  }
+}
+
 void drawWindows(Renderer renderer) {
   var borderWidth = 2;
   var numberOfWindows = windows.length;
@@ -202,22 +220,10 @@ void drawWindows(Renderer renderer) {
 
   if (numberOfWindows == 1) {
     var window = windows.first;
-
     if (window.isVisible) {
-      if (!window.isMaximized) {
-        drawBorder(
-          renderer,
-          window.contentX,
-          window.contentY,
-          window.contentWidth,
-          window.contentHeight,
-          0xff0000ff,
-          borderWidth,
-        );
-      }
-      renderer.drawWindow(window, window.drawingX, window.drawingY);
+      var borderColor = 0xff0000ff;
+      drawWindow(renderer, window, borderColor);
     }
-
     return;
   }
 
@@ -229,22 +235,30 @@ void drawWindows(Renderer renderer) {
   var list = windows.backToFrontIterable;
   for (var window in list) {
     if (window.isVisible) {
-      if (!window.isMaximized) {
-        drawBorder(
-          renderer,
-          window.contentX,
-          window.contentY,
-          window.contentWidth,
-          window.contentHeight,
-          (red << 24) | (blue << 8) | 0x77,
-          borderWidth,
-        );
-      }
-      renderer.drawWindow(window, window.drawingX, window.drawingY);
+      var borderColor = (red << 24) | (blue << 8) | 0x77;
+      drawWindow(renderer, window, borderColor);
     }
     blue -= addend;
     red += addend;
   }
+}
+
+void drawWindow(Renderer renderer, Window window, int borderColor) {
+  var borderWidth = 2;
+
+  if (!window.isMaximized) {
+    drawBorder(
+      renderer,
+      window.contentX,
+      window.contentY,
+      window.contentWidth,
+      window.contentHeight,
+      borderColor,
+      borderWidth,
+    );
+  }
+  renderer.drawWindow(window, window.drawingX, window.drawingY);
+  drawPopups(renderer, window);
 }
 
 void updateWindowPosition(Window window) {
@@ -486,17 +500,41 @@ void initializeWindow(Window window) {
     }
   };
 
+  window.onNewPopup = handleNewPopup;
+
   window.onRemove = (event) {
     windows.remove(window);
+    popups.remove(window);
 
     print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
         "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
   };
 }
 
+void handleNewPopup(NewPopupWindowEvent event) {
+  var window = event.window;
+  var parent = window.parent;
+  if (parent == null) return;
+
+  var list = popups[parent];
+  if (list == null) return;
+
+  list.addToFront(window);
+
+  window.onRemove = (event) {
+    list.remove(window);
+  };
+
+  window.onShow = (event) {
+    window.drawingX = window.popupX + parent.contentX;
+    window.drawingY = window.popupY + parent.contentY;
+  };
+}
+
 void handleNewWindow(NewWindowEvent event) {
   Window window = event.window;
   windows.addToFront(window);
+  popups[window] = WindowList();
 
   final appId = window.appId;
   final title = window.title;
@@ -524,7 +562,7 @@ void handleWindowHover(PointerMoveEvent event) {
     return;
   }
 
-  Window? currentlyHoveredWindow = getWindowAtPoint(cursor.x, cursor.y);
+  Window? currentlyHoveredWindow = getHoveredWindow();
   if (currentlyHoveredWindow != null) {
     if (currentlyHoveredWindow != hoveredWindow) {
       hoveredWindow = currentlyHoveredWindow;
@@ -648,7 +686,7 @@ void handleNewPointer(PointerDevice pointer) {
     handlePointerMovement(event);
   };
   pointer.onButton = (event) {
-    Window? currentlyHoveredWindow = getWindowAtPoint(cursor.x, cursor.y);
+    Window? currentlyHoveredWindow = getHoveredWindow();
     hoveredWindow = currentlyHoveredWindow;
 
     if (currentlyHoveredWindow == null) {
@@ -673,7 +711,10 @@ void handleNewPointer(PointerDevice pointer) {
       }
     } else {
       if (event.isPressed) {
-        if (focusedWindow != currentlyHoveredWindow) {
+        if (currentlyHoveredWindow.isPopup) {
+          currentlyHoveredWindow.focus();
+          focusedWindow = currentlyHoveredWindow;
+        } else if (focusedWindow != currentlyHoveredWindow) {
           focusWindow(currentlyHoveredWindow);
         }
 
@@ -710,7 +751,7 @@ void handleNewPointer(PointerDevice pointer) {
     }
   };
   pointer.onAxis = (event) {
-    Window? currentlyHoveredWindow = getWindowAtPoint(cursor.x, cursor.y);
+    Window? currentlyHoveredWindow = getHoveredWindow();
 
     if (currentlyHoveredWindow != null) {
       currentlyHoveredWindow.submitPointerAxisUpdate(PointerUpdate(

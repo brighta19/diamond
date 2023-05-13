@@ -357,8 +357,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "2392cd29820588a234135bea5253349936f656b9"
-      resolved-ref: "2392cd29820588a234135bea5253349936f656b9"
+      ref: "9cfd5c894221c9757a5dbdb5dc483bef8e14442e"
+      resolved-ref: "9cfd5c894221c9757a5dbdb5dc483bef8e14442e"
       url: "https://github.com/brighta19/waybright.git"
     source: git
     version: "1.0.0"
