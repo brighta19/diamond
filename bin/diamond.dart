@@ -13,18 +13,36 @@ class Vector {
   Vector(this.x, this.y);
 }
 
+class NoMonitorFoundException implements Exception {
+  @override
+  String toString() => "No monitor found!";
+}
+
 class DiamondWindow {
   Window window;
 
   var popups = WindowList();
+  var unmaximizedPosition = Vector(0.0, 0.0);
+  var unmaximizedSize = Vector(0.0, 0.0);
   var isMaximizingFocusedWindow = false;
   var isUnmaximizingFocusedWindow = false;
   var isFullscreeningFocusedWindow = false;
   var isUnfullscreeningFocusedWindow = false;
+  var wasMaximizedBeforeFullscreened = false;
+
+  bool get isFreeFloating => !window.isMaximized && !window.isFullscreen;
 
   DiamondWindow(this.window) {
     var appId = window.appId;
     var title = window.title;
+
+    window.onRemove = (event) {
+      windows.remove(window);
+      diamondWindows.remove(window);
+
+      print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
+          "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
+    };
 
     window.onShow = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
@@ -53,11 +71,13 @@ class DiamondWindow {
           " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
           " moved!");
 
-      isGrabbingFocusedWindow = true;
-      cursorPositionAtGrab.x = cursor.x;
-      cursorPositionAtGrab.y = cursor.y;
-      windowDrawingPositionAtGrab.x = window.drawingX;
-      windowDrawingPositionAtGrab.y = window.drawingY;
+      if (!window.isFullscreen) {
+        isGrabbingFocusedWindow = true;
+        cursorPositionAtGrab.x = cursor.x;
+        cursorPositionAtGrab.y = cursor.y;
+        windowDrawingPositionAtGrab.x = window.drawingX;
+        windowDrawingPositionAtGrab.y = window.drawingY;
+      }
 
       focusWindow(window);
     };
@@ -69,7 +89,7 @@ class DiamondWindow {
           " resized!");
       print("- Edge: ${event.edge}");
 
-      if (!window.isMaximized) {
+      if (isFreeFloating) {
         isResizingFocusedWindow = true;
         cursorPositionAtGrab.x = cursor.x;
         cursorPositionAtGrab.y = cursor.y;
@@ -88,9 +108,9 @@ class DiamondWindow {
           " ${window.isMaximized ? "un" : ""}maximized!");
 
       if (window.isMaximized) {
-        startUnmaximizingWindow(window);
+        unmaximize();
       } else {
-        startMaximizingWindow(window);
+        maximize();
       }
     };
 
@@ -101,21 +121,81 @@ class DiamondWindow {
           " ${window.isFullscreen ? "un" : ""}fullscreened!");
 
       if (window.isFullscreen) {
-        startUnfullscreeningWindow(window);
+        unfullscreen();
       } else {
-        startFullscreeningWindow(window);
+        fullscreen();
       }
     };
 
     window.onNewPopup = handleNewPopup;
+  }
 
-    window.onRemove = (event) {
-      windows.remove(window);
-      diamondWindows.remove(window);
+  void maximize() {
+    if (isMaximizingFocusedWindow) return;
 
-      print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
-          "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
-    };
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    if (window.isFullscreen) {
+      window.unfullscreen();
+      print("Unfullscreening 🪟 window before maximizing...");
+    } else {
+      unmaximizedPosition.x = window.drawingX;
+      unmaximizedPosition.y = window.drawingY;
+      unmaximizedSize.x = window.contentWidth;
+      unmaximizedSize.y = window.contentHeight;
+    }
+    window.maximize(width: monitor.mode.width, height: monitor.mode.height);
+    isMaximizingFocusedWindow = true;
+  }
+
+  void unmaximize() {
+    if (isUnmaximizingFocusedWindow) return;
+
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    var width = unmaximizedSize.x.toInt();
+    var height = unmaximizedSize.y.toInt();
+    window.unmaximize(width: width, height: height);
+    isUnmaximizingFocusedWindow = true;
+  }
+
+  void fullscreen() {
+    if (isFullscreeningFocusedWindow) return;
+
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    if (window.isMaximized) {
+      window.unmaximize();
+      wasMaximizedBeforeFullscreened = true;
+      print("Unmaximizing 🪟 window before fullscreening...");
+    } else {
+      unmaximizedPosition.x = window.drawingX;
+      unmaximizedPosition.y = window.drawingY;
+      unmaximizedSize.x = window.contentWidth;
+      unmaximizedSize.y = window.contentHeight;
+      wasMaximizedBeforeFullscreened = false;
+    }
+    window.fullscreen(width: monitor.mode.width, height: monitor.mode.height);
+    isFullscreeningFocusedWindow = true;
+  }
+
+  void unfullscreen() {
+    if (isUnfullscreeningFocusedWindow) return;
+
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    var width = unmaximizedSize.x.toInt();
+    var height = unmaximizedSize.y.toInt();
+    window.unfullscreen(width: width, height: height);
+    isUnfullscreeningFocusedWindow = true;
+
+    if (wasMaximizedBeforeFullscreened) {
+      window.maximize(width: monitor.mode.width, height: monitor.mode.height);
+    }
   }
 
   void updatePosition() {
@@ -124,13 +204,6 @@ class DiamondWindow {
 
     var x = 0;
     var y = 0;
-
-    if (!window.isMaximized && !window.isFullscreen) {
-      x = ((monitor.mode.width - window.contentWidth) / 2 - window.offsetX)
-          .toInt();
-      y = ((monitor.mode.height - window.contentHeight) / 3 - window.offsetY)
-          .toInt();
-    }
 
     if (isGrabbingFocusedWindow) {
       windowDrawingPositionAtGrab.x =
@@ -142,6 +215,9 @@ class DiamondWindow {
 
       x = windowDrawingPositionAtGrab.x.toInt();
       y = windowDrawingPositionAtGrab.y.toInt();
+    } else if (isFreeFloating) {
+      x = unmaximizedPosition.x.toInt();
+      y = unmaximizedPosition.y.toInt();
     }
 
     window.drawingX = x;
@@ -175,11 +251,6 @@ class DiamondWindow {
       }
     }
   }
-}
-
-class NoMonitorFoundException implements Exception {
-  @override
-  String toString() => "No monitor found!";
 }
 
 const backgroundColors = [
@@ -260,54 +331,6 @@ void unfocusWindow() {
 
   focusedWindow?.unfocus();
   focusedWindow = null;
-}
-
-void startMaximizingWindow(Window window) {
-  var monitor = currentMonitor;
-  if (monitor == null) throw NoMonitorFoundException();
-
-  var diamondWindow = diamondWindows[window]!;
-  diamondWindow.isMaximizingFocusedWindow = true;
-  if (window.isFullscreen) {
-    window.unfullscreen();
-    print("Unfullscreening 🪟 window before maximizing...");
-  }
-  window.maximize(width: monitor.mode.width, height: monitor.mode.height);
-}
-
-void startUnmaximizingWindow(Window window) {
-  var monitor = currentMonitor;
-  if (monitor == null) throw NoMonitorFoundException();
-
-  var diamondWindow = diamondWindows[window]!;
-  diamondWindow.isUnmaximizingFocusedWindow = true;
-  var width = (monitor.mode.width * 0.5).toInt();
-  var height = (monitor.mode.height * 0.5).toInt();
-  window.unmaximize(width: width, height: height);
-}
-
-void startFullscreeningWindow(Window window) {
-  var monitor = currentMonitor;
-  if (monitor == null) throw NoMonitorFoundException();
-
-  var diamondWindow = diamondWindows[window]!;
-  diamondWindow.isFullscreeningFocusedWindow = true;
-  if (window.isMaximized) {
-    window.unmaximize();
-    print("Unmaximizing 🪟 window before fullscreening...");
-  }
-  window.fullscreen(width: monitor.mode.width, height: monitor.mode.height);
-}
-
-void startUnfullscreeningWindow(Window window) {
-  var monitor = currentMonitor;
-  if (monitor == null) throw NoMonitorFoundException();
-
-  var diamondWindow = diamondWindows[window]!;
-  diamondWindow.isUnfullscreeningFocusedWindow = true;
-  var width = (monitor.mode.width * 0.5).toInt();
-  var height = (monitor.mode.height * 0.5).toInt();
-  window.unfullscreen(width: width, height: height);
 }
 
 bool isCursorOnWindow(Window window) {
@@ -414,7 +437,8 @@ void drawWindows(Renderer renderer) {
 void drawWindow(Renderer renderer, Window window, int borderColor) {
   var borderWidth = 2;
 
-  if (!window.isMaximized) {
+  var diamondWindow = diamondWindows[window]!;
+  if (diamondWindow.isFreeFloating) {
     drawBorder(
       renderer,
       window.contentX,
@@ -649,7 +673,8 @@ void handlePointerMovement(PointerMoveEvent event) {
     var distance = getDistanceBetweenPoints(cursorPositionAtGrab, cursor);
     if (distance >= 15) {
       if (window.isMaximized) {
-        startUnmaximizingWindow(window);
+        var diamondWindow = diamondWindows[window]!;
+        diamondWindow.unmaximize();
       }
       isMovingFocusedWindow = true;
       window.submitPointerMoveUpdate(PointerUpdate(
@@ -737,8 +762,12 @@ void handleNewPointer(PointerDevice pointer) {
       } else {
         var window = focusedWindow;
         if (window != null) {
-          if (isMovingFocusedWindow && window.contentY < 0) {
-            startMaximizingWindow(window);
+          var diamondWindow = diamondWindows[window]!;
+          if (isMovingFocusedWindow &&
+              window.contentY < 0 &&
+              diamondWindow.isFreeFloating) {
+            var diamondWindow = diamondWindows[window]!;
+            diamondWindow.maximize();
           }
 
           window.submitPointerButtonUpdate(PointerUpdate(
