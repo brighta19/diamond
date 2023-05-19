@@ -13,6 +13,170 @@ class Vector {
   Vector(this.x, this.y);
 }
 
+class DiamondWindow {
+  Window window;
+
+  var popups = WindowList();
+  var isMaximizingFocusedWindow = false;
+  var isUnmaximizingFocusedWindow = false;
+  var isFullscreeningFocusedWindow = false;
+  var isUnfullscreeningFocusedWindow = false;
+
+  DiamondWindow(this.window) {
+    var appId = window.appId;
+    var title = window.title;
+
+    window.onShow = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " shown!");
+
+      focusWindow(window);
+    };
+
+    window.onHide = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " hidden!");
+
+      if (window == focusedWindow) {
+        unfocusWindow();
+
+        var nextWindow = windows.getNextWindow(window);
+        if (nextWindow != null) focusWindow(nextWindow);
+      }
+    };
+
+    // The window wants to be moved, which has to be handled manually.
+    window.onMove = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " moved!");
+
+      isGrabbingFocusedWindow = true;
+      cursorPositionAtGrab.x = cursor.x;
+      cursorPositionAtGrab.y = cursor.y;
+      windowDrawingPositionAtGrab.x = window.drawingX;
+      windowDrawingPositionAtGrab.y = window.drawingY;
+
+      focusWindow(window);
+    };
+
+    // The window wants to be resized, which has to be handled manually.
+    window.onResize = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " resized!");
+      print("- Edge: ${event.edge}");
+
+      if (!window.isMaximized) {
+        isResizingFocusedWindow = true;
+        cursorPositionAtGrab.x = cursor.x;
+        cursorPositionAtGrab.y = cursor.y;
+        windowDrawingPositionAtGrab.x = window.drawingX;
+        windowDrawingPositionAtGrab.y = window.drawingY;
+        windowWidthAtGrab = window.contentWidth;
+        windowHeightAtGrab = window.contentHeight;
+        edgeOfWindowResize = event.edge;
+      }
+    };
+
+    // The window wants to be maximize, which has to be handled manually.
+    window.onMaximize = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " ${window.isMaximized ? "un" : ""}maximized!");
+
+      if (window.isMaximized) {
+        startUnmaximizingWindow(window);
+      } else {
+        startMaximizingWindow(window);
+      }
+    };
+
+    // The window wants to be fullscreened, which has to be handled manually.
+    window.onFullscreen = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " ${window.isFullscreen ? "un" : ""}fullscreened!");
+
+      if (window.isFullscreen) {
+        startUnfullscreeningWindow(window);
+      } else {
+        startFullscreeningWindow(window);
+      }
+    };
+
+    window.onNewPopup = handleNewPopup;
+
+    window.onRemove = (event) {
+      windows.remove(window);
+      diamondWindows.remove(window);
+
+      print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
+          "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
+    };
+  }
+
+  void updatePosition() {
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    var x = 0;
+    var y = 0;
+
+    if (!window.isMaximized && !window.isFullscreen) {
+      x = ((monitor.mode.width - window.contentWidth) / 2 - window.offsetX)
+          .toInt();
+      y = ((monitor.mode.height - window.contentHeight) / 3 - window.offsetY)
+          .toInt();
+    }
+
+    if (isGrabbingFocusedWindow) {
+      windowDrawingPositionAtGrab.x =
+          (cursorPositionAtGrab.x - window.contentWidth / 2)
+                  .clamp(0, monitor.mode.width - window.contentWidth) -
+              window.offsetX;
+
+      windowDrawingPositionAtGrab.y = -window.offsetY;
+
+      x = windowDrawingPositionAtGrab.x.toInt();
+      y = windowDrawingPositionAtGrab.y.toInt();
+    }
+
+    window.drawingX = x;
+    window.drawingY = y;
+  }
+
+  void update() {
+    if (isMaximizingFocusedWindow) {
+      if (window.isMaximized) {
+        isMaximizingFocusedWindow = false;
+        updatePosition();
+        print("Maximized 🪟 window!");
+      }
+    } else if (isUnmaximizingFocusedWindow) {
+      if (!window.isMaximized) {
+        isUnmaximizingFocusedWindow = false;
+        updatePosition();
+        print("Unmaximized 🪟 window!");
+      }
+    } else if (isFullscreeningFocusedWindow) {
+      if (window.isFullscreen) {
+        isFullscreeningFocusedWindow = false;
+        updatePosition();
+        print("Fullscreened 🪟 window!");
+      }
+    } else if (isUnfullscreeningFocusedWindow) {
+      if (!window.isFullscreen) {
+        isUnfullscreeningFocusedWindow = false;
+        updatePosition();
+        print("Unfullscreened 🪟 window!");
+      }
+    }
+  }
+}
+
 class NoMonitorFoundException implements Exception {
   @override
   String toString() => "No monitor found!";
@@ -32,7 +196,7 @@ Image? wallpaperImage;
 
 var monitors = <Monitor>[];
 var windows = WindowList();
-var popups = <Window, WindowList>{};
+var diamondWindows = <Window, DiamondWindow>{};
 var inputDevices = <InputDevice>[];
 
 Monitor? currentMonitor;
@@ -42,10 +206,6 @@ var isBackgroundFocusedFromPointer = false;
 var isGrabbingFocusedWindow = false;
 var isMovingFocusedWindow = false;
 var isResizingFocusedWindow = false;
-var isMaximizingFocusedWindow = false;
-var isUnmaximizingFocusedWindow = false;
-var isFullscreeningFocusedWindow = false;
-var isUnfullscreeningFocusedWindow = false;
 
 var cursor = Vector(0.0, 0.0);
 var windowDrawingPositionAtGrab = Vector(0.0, 0.0);
@@ -106,7 +266,8 @@ void startMaximizingWindow(Window window) {
   var monitor = currentMonitor;
   if (monitor == null) throw NoMonitorFoundException();
 
-  isMaximizingFocusedWindow = true;
+  var diamondWindow = diamondWindows[window]!;
+  diamondWindow.isMaximizingFocusedWindow = true;
   if (window.isFullscreen) {
     window.unfullscreen();
     print("Unfullscreening 🪟 window before maximizing...");
@@ -118,7 +279,8 @@ void startUnmaximizingWindow(Window window) {
   var monitor = currentMonitor;
   if (monitor == null) throw NoMonitorFoundException();
 
-  isUnmaximizingFocusedWindow = true;
+  var diamondWindow = diamondWindows[window]!;
+  diamondWindow.isUnmaximizingFocusedWindow = true;
   var width = (monitor.mode.width * 0.5).toInt();
   var height = (monitor.mode.height * 0.5).toInt();
   window.unmaximize(width: width, height: height);
@@ -128,7 +290,8 @@ void startFullscreeningWindow(Window window) {
   var monitor = currentMonitor;
   if (monitor == null) throw NoMonitorFoundException();
 
-  isFullscreeningFocusedWindow = true;
+  var diamondWindow = diamondWindows[window]!;
+  diamondWindow.isFullscreeningFocusedWindow = true;
   if (window.isMaximized) {
     window.unmaximize();
     print("Unmaximizing 🪟 window before fullscreening...");
@@ -140,7 +303,8 @@ void startUnfullscreeningWindow(Window window) {
   var monitor = currentMonitor;
   if (monitor == null) throw NoMonitorFoundException();
 
-  isUnfullscreeningFocusedWindow = true;
+  var diamondWindow = diamondWindows[window]!;
+  diamondWindow.isUnfullscreeningFocusedWindow = true;
   var width = (monitor.mode.width * 0.5).toInt();
   var height = (monitor.mode.height * 0.5).toInt();
   window.unfullscreen(width: width, height: height);
@@ -156,12 +320,11 @@ bool isCursorOnWindow(Window window) {
 Window? getHoveredWindowFromList(WindowList windows) {
   var listIterable = windows.frontToBackIterable;
   for (var window in listIterable) {
-    var popupList = popups[window];
+    var diamondWindow = diamondWindows[window]!;
+    var popupList = diamondWindow.popups;
 
-    if (popupList != null) {
-      var popup = getHoveredWindowFromList(popupList);
-      if (popup != null) return popup;
-    }
+    var popup = getHoveredWindowFromList(popupList);
+    if (popup != null) return popup;
 
     if (isCursorOnWindow(window)) return window;
   }
@@ -205,8 +368,8 @@ void drawBorder(Renderer renderer, num x, num y, int width, int height,
 }
 
 void drawPopups(Renderer renderer, Window window) {
-  var list = popups[window]?.backToFrontIterable;
-  if (list == null) return;
+  var diamondWindow = diamondWindows[window]!;
+  var list = diamondWindow.popups.backToFrontIterable;
 
   for (var popup in list) {
     renderer.drawWindow(popup, popup.drawingX, popup.drawingY);
@@ -223,6 +386,8 @@ void drawWindows(Renderer renderer) {
     var window = windows.first;
     if (window.isVisible) {
       var borderColor = 0xff0000ff;
+      var diamondWindow = diamondWindows[window]!;
+      diamondWindow.update();
       drawWindow(renderer, window, borderColor);
     }
     return;
@@ -237,6 +402,8 @@ void drawWindows(Renderer renderer) {
   for (var window in list) {
     if (window.isVisible) {
       var borderColor = (red << 24) | (blue << 8) | 0x77;
+      var diamondWindow = diamondWindows[window]!;
+      diamondWindow.update();
       drawWindow(renderer, window, borderColor);
     }
     blue -= addend;
@@ -260,69 +427,6 @@ void drawWindow(Renderer renderer, Window window, int borderColor) {
   }
   renderer.drawWindow(window, window.drawingX, window.drawingY);
   drawPopups(renderer, window);
-}
-
-void updateWindowPosition(Window window) {
-  var monitor = currentMonitor;
-  if (monitor == null) throw NoMonitorFoundException();
-
-  var x = 0;
-  var y = 0;
-
-  if (!window.isMaximized && !window.isFullscreen) {
-    x = ((monitor.mode.width - window.contentWidth) / 2 - window.offsetX)
-        .toInt();
-    y = ((monitor.mode.height - window.contentHeight) / 3 - window.offsetY)
-        .toInt();
-  }
-
-  if (isGrabbingFocusedWindow) {
-    windowDrawingPositionAtGrab.x =
-        (cursorPositionAtGrab.x - window.contentWidth / 2)
-                .clamp(0, monitor.mode.width - window.contentWidth) -
-            window.offsetX;
-
-    windowDrawingPositionAtGrab.y = -window.offsetY;
-
-    x = windowDrawingPositionAtGrab.x.toInt();
-    y = windowDrawingPositionAtGrab.y.toInt();
-  }
-
-  window.drawingX = x;
-  window.drawingY = y;
-}
-
-/// Hacky way to (un)maximize a window.
-void handleUpdates() {
-  if (isMaximizingFocusedWindow) {
-    var window = focusedWindow;
-    if (window != null && window.isMaximized) {
-      isMaximizingFocusedWindow = false;
-      updateWindowPosition(window);
-      print("Maximized 🪟 window!");
-    }
-  } else if (isUnmaximizingFocusedWindow) {
-    var window = focusedWindow;
-    if (window != null && !window.isMaximized) {
-      isUnmaximizingFocusedWindow = false;
-      updateWindowPosition(window);
-      print("Unmaximized 🪟 window!");
-    }
-  } else if (isFullscreeningFocusedWindow) {
-    var window = focusedWindow;
-    if (window != null && window.isFullscreen) {
-      isFullscreeningFocusedWindow = false;
-      updateWindowPosition(window);
-      print("Fullscreened 🪟 window!");
-    }
-  } else if (isUnfullscreeningFocusedWindow) {
-    var window = focusedWindow;
-    if (window != null && !window.isFullscreen) {
-      isUnfullscreeningFocusedWindow = false;
-      updateWindowPosition(window);
-      print("Unfullscreened 🪟 window!");
-    }
-  }
 }
 
 void drawWallpaper(Renderer renderer) {
@@ -349,8 +453,6 @@ void drawWallpaper(Renderer renderer) {
 void handleCurrentMonitorFrame() {
   var monitor = currentMonitor;
   if (monitor == null) throw NoMonitorFoundException();
-
-  handleUpdates();
 
   var renderer = monitor.renderer;
 
@@ -416,102 +518,6 @@ void handleNewMonitor(NewMonitorEvent event) {
   initializeMonitor(monitor);
 }
 
-void initializeWindow(Window window) {
-  final appId = window.appId;
-  final title = window.title;
-
-  window.onShow = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " shown!");
-
-    focusWindow(window);
-  };
-
-  window.onHide = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " hidden!");
-
-    if (window == focusedWindow) {
-      unfocusWindow();
-
-      var nextWindow = windows.getNextWindow(window);
-      if (nextWindow != null) focusWindow(nextWindow);
-    }
-  };
-
-  // The window wants to be moved, which has to be handled manually.
-  window.onMove = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " moved!");
-
-    isGrabbingFocusedWindow = true;
-    cursorPositionAtGrab.x = cursor.x;
-    cursorPositionAtGrab.y = cursor.y;
-    windowDrawingPositionAtGrab.x = window.drawingX;
-    windowDrawingPositionAtGrab.y = window.drawingY;
-
-    focusWindow(window);
-  };
-
-  // The window wants to be resized, which has to be handled manually.
-  window.onResize = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " resized!");
-    print("- Edge: ${event.edge}");
-
-    if (!window.isMaximized) {
-      isResizingFocusedWindow = true;
-      cursorPositionAtGrab.x = cursor.x;
-      cursorPositionAtGrab.y = cursor.y;
-      windowDrawingPositionAtGrab.x = window.drawingX;
-      windowDrawingPositionAtGrab.y = window.drawingY;
-      windowWidthAtGrab = window.contentWidth;
-      windowHeightAtGrab = window.contentHeight;
-      edgeOfWindowResize = event.edge;
-    }
-  };
-
-  // The window wants to be maximize, which has to be handled manually.
-  window.onMaximize = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " ${window.isMaximized ? "un" : ""}maximized!");
-
-    if (window.isMaximized) {
-      startUnmaximizingWindow(window);
-    } else {
-      startMaximizingWindow(window);
-    }
-  };
-
-  // The window wants to be fullscreened, which has to be handled manually.
-  window.onFullscreen = (event) {
-    print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-        " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-        " ${window.isFullscreen ? "un" : ""}fullscreened!");
-
-    if (window.isFullscreen) {
-      startUnfullscreeningWindow(window);
-    } else {
-      startFullscreeningWindow(window);
-    }
-  };
-
-  window.onNewPopup = handleNewPopup;
-
-  window.onRemove = (event) {
-    windows.remove(window);
-    popups.remove(window);
-
-    print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
-        "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
-  };
-}
-
 void handleNewPopup(NewPopupWindowEvent event) {
   print("A 🪟 popup window has been added!");
 
@@ -519,25 +525,31 @@ void handleNewPopup(NewPopupWindowEvent event) {
   var parent = window.parent;
   if (parent == null) return;
 
-  var list = popups[parent];
-  if (list == null) return;
+  var diamondWindow = DiamondWindow(window);
+  diamondWindows[window] = diamondWindow;
 
-  list.addToFront(window);
+  var parentDiamondWindow = diamondWindows[parent]!;
+  parentDiamondWindow.popups.addToFront(window);
 
   window.onRemove = (event) {
-    list.remove(window);
+    diamondWindows.remove(window);
+    parentDiamondWindow.popups.remove(window);
   };
 
   window.onShow = (event) {
     window.drawingX = window.popupX + parent.contentX;
     window.drawingY = window.popupY + parent.contentY;
   };
+
+  window.onNewPopup = handleNewPopup;
 }
 
 void handleNewWindow(NewWindowEvent event) {
   Window window = event.window;
   windows.addToFront(window);
-  popups[window] = WindowList();
+
+  var diamondWindow = DiamondWindow(window);
+  diamondWindows[window] = diamondWindow;
 
   final appId = window.appId;
   final title = window.title;
@@ -546,8 +558,6 @@ void handleNewWindow(NewWindowEvent event) {
       "'s 🪟${window.isPopup ? " popup" : ""} window has been added!");
 
   if (title.isNotEmpty) print("- Title: '$title'");
-
-  initializeWindow(window);
 }
 
 void handleWindowHover(PointerMoveEvent event) {
@@ -566,21 +576,21 @@ void handleWindowHover(PointerMoveEvent event) {
   }
 
   Window? hoveredWindow_ = hoveredWindow;
-  hoveredWindow_?.submitPointerMoveUpdate(PointerUpdate(
-    pointer,
-    event,
-    (cursor.x - hoveredWindow_.drawingX).toDouble(),
-    (cursor.y - hoveredWindow_.drawingY).toDouble(),
-  ));
+  if (hoveredWindow_ != null) {
+    hoveredWindow_.submitPointerMoveUpdate(PointerUpdate(
+      pointer,
+      event,
+      (cursor.x - hoveredWindow_.drawingX).toDouble(),
+      (cursor.y - hoveredWindow_.drawingY).toDouble(),
+    ));
+    return;
+  }
 }
 
 void handleWindowMove() {
-  var window = focusedWindow;
-  if (window == null) return;
-
-  window.drawingX =
+  focusedWindow?.drawingX =
       windowDrawingPositionAtGrab.x + cursor.x - cursorPositionAtGrab.x;
-  window.drawingY =
+  focusedWindow?.drawingY =
       windowDrawingPositionAtGrab.y + cursor.y - cursorPositionAtGrab.y;
 }
 
@@ -854,10 +864,7 @@ void handleNewKeyboard(KeyboardDevice keyboard) {
     }
   };
   keyboard.onModifiers = (event) {
-    var window = focusedWindow;
-    if (window == null) return;
-
-    window.submitKeyboardModifiersUpdate(KeyboardUpdate(
+    focusedWindow?.submitKeyboardModifiersUpdate(KeyboardUpdate(
       keyboard,
       event,
     ));
@@ -889,22 +896,22 @@ void handleNewInput(NewInputEvent event) {
 }
 
 void main(List<String> arguments) async {
-  var diamond0 = Waybright();
-  diamond = diamond0;
+  var diamond_ = Waybright();
+  diamond = diamond_;
 
-  diamond0.onNewMonitor = handleNewMonitor;
-  diamond0.onNewWindow = handleNewWindow;
-  diamond0.onNewInput = handleNewInput;
+  diamond_.onNewMonitor = handleNewMonitor;
+  diamond_.onNewWindow = handleNewWindow;
+  diamond_.onNewInput = handleNewInput;
 
   try {
     print("Loading 🖼️ wallpaper '$wallpaperImagePath'...");
-    wallpaperImage = await diamond0.loadPngImage(wallpaperImagePath);
+    wallpaperImage = await diamond_.loadPngImage(wallpaperImagePath);
   } catch (e) {
     stderr.writeln("Failed to load 🖼️ wallpaper '$wallpaperImagePath': $e");
   }
 
   try {
-    var socketName = diamond0.openSocket();
+    var socketName = diamond_.openSocket();
     print("~~~ Socket opened on '$socketName' ~~~");
 
     if (arguments.length == 2) {
