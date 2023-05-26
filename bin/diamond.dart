@@ -82,6 +82,7 @@ class DiamondWindow {
           " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
           " shown!");
 
+      assignRandomPosition();
       focusWindow(window);
       appear();
     };
@@ -160,6 +161,18 @@ class DiamondWindow {
     };
 
     window.onNewPopup = handleNewPopup;
+  }
+
+  void assignRandomPosition() {
+    var monitor = currentMonitor;
+    if (monitor == null) throw NoMonitorFoundException();
+
+    var random = Random();
+    var x = random.nextInt(monitor.mode.width - window.contentWidth);
+    var y = random.nextInt(monitor.mode.height - window.contentHeight);
+
+    window.drawingX = x - window.contentX;
+    window.drawingY = y - window.contentY;
   }
 
   void maximize() {
