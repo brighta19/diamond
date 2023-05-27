@@ -79,6 +79,7 @@ class DiamondWindow {
 
       assignRandomPosition();
       focusWindow(this);
+      moveWindowToFront(this);
       appear();
     };
 
@@ -93,7 +94,7 @@ class DiamondWindow {
         var hasFoundThisWindow = false;
         for (var otherWindow in windows) {
           if (hasFoundThisWindow) {
-            focusWindow(otherWindow, false);
+            focusWindow(otherWindow);
             break;
           } else if (otherWindow == this) {
             hasFoundThisWindow = true;
@@ -115,6 +116,7 @@ class DiamondWindow {
       windowDrawingPositionAtGrab.y = window.drawingY;
 
       focusWindow(this);
+      moveWindowToFront(this);
     };
 
     // The window wants to be resized, which has to be handled manually.
@@ -337,7 +339,7 @@ class DiamondWindow {
   void appear() {
     canReceiveInput = false;
     alpha = 0.0;
-    scale = 0.8;
+    scale = 0.9;
     _newAlpha = 1.0;
     _newScale = 1.0;
     isAppearing = true;
@@ -347,7 +349,7 @@ class DiamondWindow {
       easing: EasingFunctions.easeOutCubic,
       onUpdate: (t) {
         alpha = t;
-        scale = 0.8 + 0.2 * t;
+        scale = 0.9 + 0.1 * t;
       },
       onDone: () {
         canReceiveInput = true;
@@ -427,17 +429,20 @@ double getDistanceBetweenPoints(Vector point1, Vector point2) {
 
 void clearAllInputDeviceFocus() {
   for (var inputDevice in inputDevices) {
-    if (inputDevice.type == InputDeviceType.pointer) {
-      var pointer = inputDevice as PointerDevice;
-      pointer.clearFocus();
-    } else if (inputDevice.type == InputDeviceType.keyboard) {
-      var keyboard = inputDevice as KeyboardDevice;
-      keyboard.clearFocus();
+    if (inputDevice is PointerDevice) {
+      inputDevice.clearFocus();
+    } else if (inputDevice is KeyboardDevice) {
+      inputDevice.clearFocus();
     }
   }
 }
 
-void focusWindow(DiamondWindow window, [bool shouldMoveToFront = true]) {
+void moveWindowToFront(DiamondWindow window) {
+  windows.remove(window);
+  windows.addFirst(window);
+}
+
+void focusWindow(DiamondWindow window) {
   if (focusedWindow == window) return;
   print("Redirecting 🪟 window 🔎 focus...");
 
@@ -447,10 +452,6 @@ void focusWindow(DiamondWindow window, [bool shouldMoveToFront = true]) {
   }
 
   window.window.focus();
-  if (shouldMoveToFront) {
-    windows.remove(window);
-    windows.addFirst(window);
-  }
   focusedWindow = window;
 }
 
@@ -536,7 +537,7 @@ void drawWindow(Renderer renderer, DiamondWindow window) {
         scale = window.isFreeFloating ? 1.05 : 0.98;
       } else {
         alpha = window.isFullscreen ? 1.0 : 0.7;
-        scale = 0.9;
+        scale = 0.95;
       }
     }
 
@@ -700,9 +701,8 @@ void handleWindowHover(PointerMoveEvent event) {
 
   cursorImage = null;
   for (var inputDevice in inputDevices) {
-    if (inputDevice.type == InputDeviceType.pointer) {
-      var pointer = inputDevice as PointerDevice;
-      pointer.clearFocus();
+    if (inputDevice is PointerDevice) {
+      inputDevice.clearFocus();
     }
   }
 }
@@ -839,6 +839,7 @@ void handleNewPointer(PointerDevice pointer) {
           focusedWindow = hoveredWindow_;
         } else if (focusedWindow != hoveredWindow_) {
           focusWindow(hoveredWindow_);
+          moveWindowToFront(hoveredWindow_);
         }
 
         if (canSubmitPointerButtonEvents) {
@@ -914,6 +915,7 @@ void handleWindowSwitching(KeyboardDevice keyboard) {
     try {
       var window = tempWindowList.elementAt(windowSwitchIndex);
       focusWindow(window);
+      moveWindowToFront(window);
     } catch (e) {
       print(e);
     }
@@ -954,24 +956,31 @@ void quit() {
   print("~~~ Socket closed ~~~");
 }
 
-void handleNewKeyboard(KeyboardDevice keyboard) {
-  keyboard.onKey = (event) {
-    updateKeys(event);
-
-    if (event.key == InputDeviceButton.escape && event.isPressed) {
+void handleKeyBindings(KeyboardKeyEvent event) {
+  switch (event.key) {
+    case InputDeviceButton.escape:
       if (readyToQuit) {
         quit();
       } else if (isAltKeyPressed) {
         readyToQuit = true;
       }
-    } else if (event.key == InputDeviceButton.tab && event.isPressed) {
-      if (isAltKeyPressed) {
-        handleWindowSwitching(keyboard);
-      }
-    } else if (event.key == InputDeviceButton.keyT && event.isPressed) {
-      if (isAltKeyPressed) {
-        launchTerminal();
-      }
+      break;
+    case InputDeviceButton.tab:
+      if (isAltKeyPressed) handleWindowSwitching(event.keyboard);
+      break;
+    case InputDeviceButton.keyT:
+      if (isAltKeyPressed) launchTerminal();
+      break;
+    default:
+  }
+}
+
+void handleNewKeyboard(KeyboardDevice keyboard) {
+  keyboard.onKey = (event) {
+    updateKeys(event);
+
+    if (event.isPressed) {
+      handleKeyBindings(event);
     }
 
     if (!isAltKeyPressed) {
