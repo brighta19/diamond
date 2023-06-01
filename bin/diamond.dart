@@ -23,23 +23,46 @@ class DiamondWindow {
   final _animations = <Animation>[];
   var _newAlpha = 0.0;
   var _newScale = 1.0;
-  var _isMaximizingFocusedWindow = false;
-  var _isUnmaximizingFocusedWindow = false;
-  var _isFullscreeningFocusedWindow = false;
-  var _isUnfullscreeningFocusedWindow = false;
+  var _isMaximizingWindow = false;
+  var _isUnmaximizingWindow = false;
+  var _isFullscreeningWindow = false;
+  var _isUnfullscreeningWindow = false;
   var _wasMaximizedBeforeFullscreened = false;
 
   final Window window;
   DiamondWindow? parent;
   final popups = Queue<DiamondWindow>();
-  final unmaximizedPosition = Vector(0.0, 0.0);
-  final unmaximizedSize = Vector(0.0, 0.0);
   var alpha = 0.0;
   var scale = 1.0;
   var canReceiveInput = true;
+  var isGrabbed = false;
   var isAppearing = false;
+  var isMoving = false;
+  var isResizing = false;
 
-  String get appId => window.appId;
+  num textureX = 0;
+  num textureY = 0;
+
+  num get x => textureX + window.offsetX;
+  num get y => textureY + window.offsetY;
+  set x(num x) => textureX = x - window.offsetX;
+  set y(num y) => textureY = y - window.offsetY;
+
+  int get width => window.width;
+  int get height => window.height;
+  num get textureWidth => window.textureWidth;
+  num get textureHeight => window.textureHeight;
+
+  final freeFloatingPosition = Vector(0.0, 0.0);
+  final freeFloatingSize = Vector(0.0, 0.0);
+
+  // grabbed when being moved or resized
+  final positionAtStartOfGrab = Vector(0.0, 0.0);
+  final sizeAtStartOfGrab = Vector(0.0, 0.0);
+
+  var edgeBeingResized = WindowEdge.none;
+
+  String get appId => window.applicationId;
   String get title => window.title;
   bool get isPopup => window.isPopup;
   bool get isMaximized => window.isMaximized;
@@ -47,11 +70,11 @@ class DiamondWindow {
   bool get isFreeFloating => !isMaximized && !isFullscreen;
 
   DiamondWindow(this.window) {
-    setHandlers();
+    _setHandlers();
   }
 
-  void setHandlers() {
-    window.onRemove = (event) {
+  void _setHandlers() {
+    window.onDestroying = (event) {
       if (this == hoveredWindow) {
         cursorImage = null;
       }
@@ -62,20 +85,19 @@ class DiamondWindow {
       }
 
       print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
-          "'s 🪟${window.isPopup ? " popup" : ""} window has been removed!");
+          "'s 🪟${isPopup ? " popup" : ""} window has been removed!");
     };
 
-    window.onShow = (event) {
-      if (window.isPopup) {
-        var parent = window.parent!;
-        window.drawingX = window.popupX + parent.contentX;
-        window.drawingY = window.popupY + parent.contentY;
+    window.onTextureSet = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " has ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          "'s texture set!");
+
+      if (isPopup) {
+        x = window.popupX + parent!.x;
+        y = window.popupY + parent!.y;
         return;
       }
-
-      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-          " shown!");
 
       assignRandomPosition();
       focusWindow(this);
@@ -83,10 +105,10 @@ class DiamondWindow {
       appear();
     };
 
-    window.onHide = (event) {
+    window.onTextureUnsetting = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
           " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-          " hidden!");
+          "' texture unset!");
 
       if (this == focusedWindow) {
         unfocusWindow();
@@ -103,74 +125,215 @@ class DiamondWindow {
       }
     };
 
-    // The window wants to be moved, which has to be handled manually.
-    window.onMove = (event) {
+    window.onMoveRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
           " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
           " moved!");
 
-      isGrabbingFocusedWindow = true;
-      cursorPositionAtGrab.x = cursor.x;
-      cursorPositionAtGrab.y = cursor.y;
-      windowDrawingPositionAtGrab.x = window.drawingX;
-      windowDrawingPositionAtGrab.y = window.drawingY;
+      if (!isFullscreen) {
+        grab();
+      }
 
       focusWindow(this);
       moveWindowToFront(this);
     };
 
-    // The window wants to be resized, which has to be handled manually.
-    window.onResize = (event) {
+    window.onResizeRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
           " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
           " resized!");
       print("- Edge: ${event.edge}");
 
       if (isFreeFloating) {
-        isResizingFocusedWindow = true;
-        cursorPositionAtGrab.x = cursor.x;
-        cursorPositionAtGrab.y = cursor.y;
-        windowDrawingPositionAtGrab.x = window.drawingX;
-        windowDrawingPositionAtGrab.y = window.drawingY;
-        windowWidthAtGrab = window.contentWidth;
-        windowHeightAtGrab = window.contentHeight;
-        edgeOfWindowResize = event.edge;
+        grab();
+        startResize(event.edge);
       }
     };
 
-    // The window wants to be maximize, which has to be handled manually.
+    window.onResize = (event) {
+      if (!isResizing) return;
+
+      var deltaX = width - sizeAtStartOfGrab.x;
+      var deltaY = height - sizeAtStartOfGrab.y;
+
+      switch (edgeBeingResized) {
+        case WindowEdge.left:
+        case WindowEdge.topLeft:
+        case WindowEdge.bottomLeft:
+          x = positionAtStartOfGrab.x - deltaX;
+          break;
+        default:
+          break;
+      }
+
+      switch (edgeBeingResized) {
+        case WindowEdge.top:
+        case WindowEdge.topLeft:
+        case WindowEdge.topRight:
+          y = positionAtStartOfGrab.y - deltaY;
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.onMaximizeRequest = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " maximized!");
+
+      maximize();
+    };
+
     window.onMaximize = (event) {
-      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-          " ${isMaximized ? "un" : ""}maximized!");
+      if (!_isMaximizingWindow) return;
 
-      if (isMaximized) {
-        unmaximize();
-      } else {
-        maximize();
-      }
+      x = 0;
+      y = 0;
+
+      _isMaximizingWindow = false;
+      print("Maximized 🪟 window!");
     };
 
-    // The window wants to be fullscreened, which has to be handled manually.
+    window.onUnmaximizeRequest = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " unmaximized!");
+
+      unmaximize();
+    };
+
+    window.onUnmaximize = (event) {
+      if (!_isUnmaximizingWindow) return;
+      var monitor = currentMonitor;
+      if (monitor == null) throw NoMonitorFoundException();
+
+      if (isGrabbed) {
+        positionAtStartOfGrab.x = (cursorPositionAtGrab.x - width / 2)
+            .clamp(0, monitor.mode.width - width);
+
+        positionAtStartOfGrab.y = -window.offsetY;
+
+        x = positionAtStartOfGrab.x;
+        y = positionAtStartOfGrab.y;
+      } else {
+        x = freeFloatingPosition.x;
+        y = freeFloatingPosition.y;
+      }
+
+      _isUnmaximizingWindow = false;
+      print("Unmaximized 🪟 window!");
+    };
+
+    window.onMinimizeRequest = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " minimized!");
+    };
+
+    window.onFullscreenRequest = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " fullscreened!");
+
+      fullscreen();
+    };
+
     window.onFullscreen = (event) {
-      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
-          " ${isFullscreen ? "un" : ""}fullscreened!");
+      if (!_isFullscreeningWindow) return;
 
-      if (isFullscreen) {
-        unfullscreen();
-      } else {
-        fullscreen();
-      }
+      x = 0;
+      y = 0;
+
+      _isFullscreeningWindow = false;
+      print("Fullscreened 🪟 window!");
     };
 
-    window.onNewPopup = (event) {
+    window.onUnfullscreenRequest = (event) {
+      print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
+          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " unfullscreened!");
+
+      unfullscreen();
+    };
+
+    window.onUnfullscreen = (event) {
+      if (!_isUnfullscreeningWindow) return;
+
+      if (isFreeFloating) {
+        x = freeFloatingPosition.x;
+        y = freeFloatingPosition.y;
+      } else {
+        x = 0;
+        y = 0;
+      }
+
+      _isUnfullscreeningWindow = false;
+      print("Unfullscreened 🪟 window!");
+    };
+
+    window.onPopupCreate = (event) {
       print("A 🪟 popup window has been added!");
 
       var popup = DiamondWindow(event.window);
       popup.parent = this;
       popups.add(popup);
     };
+
+    window.onParentChange = (event) {
+      print("The 🪟 window's parent has changed!");
+    };
+  }
+
+  void _updateAnimations() {
+    for (var animation in _animations) {
+      animation.update();
+    }
+
+    _animations.removeWhere((animation) => animation.isDone);
+  }
+
+  void grab() {
+    cursorPositionAtGrab.x = cursor.x;
+    cursorPositionAtGrab.y = cursor.y;
+    positionAtStartOfGrab.x = x;
+    positionAtStartOfGrab.y = y;
+    sizeAtStartOfGrab.x = width;
+    sizeAtStartOfGrab.y = height;
+    canReceiveInput = false;
+    isGrabbed = true;
+  }
+
+  void release() {
+    canReceiveInput = true;
+    isGrabbed = false;
+  }
+
+  void startMove() {
+    if (!isGrabbed) grab();
+
+    isMoving = true;
+  }
+
+  void stopMove() {
+    if (isGrabbed) release();
+
+    isMoving = false;
+  }
+
+  void startResize(WindowEdge edge) {
+    if (!isGrabbed) grab();
+
+    isResizing = true;
+    edgeBeingResized = edge;
+    window.notifyResizing(true);
+  }
+
+  void stopResize() {
+    if (isGrabbed) release();
+
+    isResizing = false;
+    window.notifyResizing(false);
   }
 
   void assignRandomPosition() {
@@ -178,15 +341,12 @@ class DiamondWindow {
     if (monitor == null) throw NoMonitorFoundException();
 
     var random = Random();
-    var x = random.nextInt(monitor.mode.width - window.contentWidth);
-    var y = random.nextInt(monitor.mode.height - window.contentHeight);
-
-    window.drawingX = x - window.contentX;
-    window.drawingY = y - window.contentY;
+    x = random.nextInt(monitor.mode.width - width);
+    y = random.nextInt(monitor.mode.height - height);
   }
 
   void maximize() {
-    if (_isMaximizingFocusedWindow) return;
+    if (_isMaximizingWindow) return;
 
     var monitor = currentMonitor;
     if (monitor == null) throw NoMonitorFoundException();
@@ -195,29 +355,29 @@ class DiamondWindow {
       window.unfullscreen();
       print("Unfullscreening 🪟 window before maximizing...");
     } else {
-      unmaximizedPosition.x = window.drawingX;
-      unmaximizedPosition.y = window.drawingY;
-      unmaximizedSize.x = window.contentWidth;
-      unmaximizedSize.y = window.contentHeight;
+      freeFloatingPosition.x = x;
+      freeFloatingPosition.y = y;
+      freeFloatingSize.x = width;
+      freeFloatingSize.y = height;
     }
     window.maximize(width: monitor.mode.width, height: monitor.mode.height);
-    _isMaximizingFocusedWindow = true;
+    _isMaximizingWindow = true;
   }
 
   void unmaximize() {
-    if (_isUnmaximizingFocusedWindow) return;
+    if (_isUnmaximizingWindow) return;
 
     var monitor = currentMonitor;
     if (monitor == null) throw NoMonitorFoundException();
 
-    var width = unmaximizedSize.x.toInt();
-    var height = unmaximizedSize.y.toInt();
+    var width = freeFloatingSize.x.toInt();
+    var height = freeFloatingSize.y.toInt();
     window.unmaximize(width: width, height: height);
-    _isUnmaximizingFocusedWindow = true;
+    _isUnmaximizingWindow = true;
   }
 
   void fullscreen() {
-    if (_isFullscreeningFocusedWindow) return;
+    if (_isFullscreeningWindow) return;
 
     var monitor = currentMonitor;
     if (monitor == null) throw NoMonitorFoundException();
@@ -227,94 +387,34 @@ class DiamondWindow {
       _wasMaximizedBeforeFullscreened = true;
       print("Unmaximizing 🪟 window before fullscreening...");
     } else {
-      unmaximizedPosition.x = window.drawingX;
-      unmaximizedPosition.y = window.drawingY;
-      unmaximizedSize.x = window.contentWidth;
-      unmaximizedSize.y = window.contentHeight;
+      freeFloatingPosition.x = x;
+      freeFloatingPosition.y = y;
+      freeFloatingSize.x = width;
+      freeFloatingSize.y = height;
       _wasMaximizedBeforeFullscreened = false;
     }
     window.fullscreen(width: monitor.mode.width, height: monitor.mode.height);
-    _isFullscreeningFocusedWindow = true;
+    _isFullscreeningWindow = true;
   }
 
   void unfullscreen() {
-    if (_isUnfullscreeningFocusedWindow) return;
+    if (_isUnfullscreeningWindow) return;
 
     var monitor = currentMonitor;
     if (monitor == null) throw NoMonitorFoundException();
 
-    var width = unmaximizedSize.x.toInt();
-    var height = unmaximizedSize.y.toInt();
+    var width = freeFloatingSize.x.toInt();
+    var height = freeFloatingSize.y.toInt();
     window.unfullscreen(width: width, height: height);
-    _isUnfullscreeningFocusedWindow = true;
+    _isUnfullscreeningWindow = true;
 
     if (_wasMaximizedBeforeFullscreened) {
       window.maximize(width: monitor.mode.width, height: monitor.mode.height);
     }
   }
 
-  void updatePosition() {
-    var monitor = currentMonitor;
-    if (monitor == null) throw NoMonitorFoundException();
-
-    var x = 0;
-    var y = 0;
-
-    if (isGrabbingFocusedWindow) {
-      windowDrawingPositionAtGrab.x =
-          (cursorPositionAtGrab.x - window.contentWidth / 2)
-                  .clamp(0, monitor.mode.width - window.contentWidth) -
-              window.offsetX;
-
-      windowDrawingPositionAtGrab.y = -window.offsetY;
-
-      x = windowDrawingPositionAtGrab.x.toInt();
-      y = windowDrawingPositionAtGrab.y.toInt();
-    } else if (isFreeFloating) {
-      x = unmaximizedPosition.x.toInt();
-      y = unmaximizedPosition.y.toInt();
-    }
-
-    window.drawingX = x;
-    window.drawingY = y;
-  }
-
-  void updateAnimations() {
-    for (var animation in _animations) {
-      animation.update();
-    }
-
-    _animations.removeWhere((animation) => animation.isDone);
-  }
-
   void update() {
-    updateAnimations();
-
-    if (_isMaximizingFocusedWindow) {
-      if (isMaximized) {
-        _isMaximizingFocusedWindow = false;
-        updatePosition();
-        print("Maximized 🪟 window!");
-      }
-    } else if (_isUnmaximizingFocusedWindow) {
-      if (!isMaximized) {
-        _isUnmaximizingFocusedWindow = false;
-        updatePosition();
-        print("Unmaximized 🪟 window!");
-      }
-    } else if (_isFullscreeningFocusedWindow) {
-      if (isFullscreen) {
-        _isFullscreeningFocusedWindow = false;
-        updatePosition();
-        print("Fullscreened 🪟 window!");
-      }
-    } else if (_isUnfullscreeningFocusedWindow) {
-      if (!isFullscreen) {
-        _isUnfullscreeningFocusedWindow = false;
-        updatePosition();
-        print("Unfullscreened 🪟 window!");
-      }
-    }
+    _updateAnimations();
   }
 
   void animateTo({required Duration duration, double? alpha, double? scale}) {
@@ -337,7 +437,7 @@ class DiamondWindow {
   }
 
   void appear() {
-    canReceiveInput = false;
+    // canReceiveInput = false;
     alpha = 0.0;
     scale = 0.9;
     _newAlpha = 1.0;
@@ -352,7 +452,7 @@ class DiamondWindow {
         scale = 0.9 + 0.1 * t;
       },
       onDone: () {
-        canReceiveInput = true;
+        // canReceiveInput = true;
         isAppearing = false;
       },
     ));
@@ -380,17 +480,9 @@ Monitor? currentMonitor;
 
 var isFocusedWindowFocusedFromPointer = false;
 var isBackgroundFocusedFromPointer = false;
-var isGrabbingFocusedWindow = false;
-var isMovingFocusedWindow = false;
-var isResizingFocusedWindow = false;
 
 var cursor = Vector(0.0, 0.0);
-var windowDrawingPositionAtGrab = Vector(0.0, 0.0);
 var cursorPositionAtGrab = Vector(0.0, 0.0);
-
-var windowWidthAtGrab = 0;
-var windowHeightAtGrab = 0;
-var edgeOfWindowResize = WindowEdge.none;
 
 var windowSwitchIndex = 0;
 var isSwitchingWindows = false;
@@ -447,11 +539,11 @@ void focusWindow(DiamondWindow window) {
   print("Redirecting 🪟 window 🔎 focus...");
 
   if (focusedWindow != null) {
-    focusedWindow?.window.unfocus();
+    focusedWindow?.window.deactivate();
     clearAllInputDeviceFocus();
   }
 
-  window.window.focus();
+  window.window.activate();
   focusedWindow = window;
 }
 
@@ -459,15 +551,15 @@ void unfocusWindow() {
   if (focusedWindow == null) return;
   print("🔎 Unfocusing 🪟 window...");
 
-  focusedWindow?.window.unfocus();
+  focusedWindow?.window.deactivate();
   focusedWindow = null;
 }
 
 bool isCursorOnWindow(DiamondWindow window) {
-  return window.window.contentX <= cursor.x &&
-      window.window.contentY <= cursor.y &&
-      window.window.contentX + window.window.contentWidth >= cursor.x &&
-      window.window.contentY + window.window.contentHeight >= cursor.y;
+  return window.x <= cursor.x &&
+      window.y <= cursor.y &&
+      window.x + window.width >= cursor.x &&
+      window.y + window.height >= cursor.y;
 }
 
 DiamondWindow? getHoveredWindowFromList(Queue<DiamondWindow> windows) {
@@ -514,8 +606,7 @@ void drawCursor(Renderer renderer) {
 void drawPopups(Renderer renderer, DiamondWindow window) {
   var popups = window.popups;
   for (var popup in popups) {
-    renderer.drawWindow(
-        popup.window, popup.window.drawingX, popup.window.drawingY);
+    renderer.drawWindow(popup.window, popup.textureX, popup.textureY);
     drawPopups(renderer, popup);
   }
 }
@@ -548,10 +639,10 @@ void drawWindow(Renderer renderer, DiamondWindow window) {
     );
   }
 
-  var width = (window.window.drawingWidth * window.scale).toInt();
-  var height = (window.window.drawingHeight * window.scale).toInt();
-  var x = window.window.drawingX - (width - window.window.drawingWidth) ~/ 2;
-  var y = window.window.drawingY - (height - window.window.drawingHeight) ~/ 2;
+  var width = (window.textureWidth * window.scale).toInt();
+  var height = (window.textureHeight * window.scale).toInt();
+  var x = window.textureX - (width - window.textureWidth) ~/ 2;
+  var y = window.textureY - (height - window.textureHeight) ~/ 2;
   var alpha = window.alpha;
 
   renderer.drawWindow(window.window, x, y,
@@ -657,9 +748,8 @@ void handleNewMonitor(NewMonitorEvent event) {
   initializeMonitor(monitor);
 }
 
-void handleNewWindow(NewWindowEvent event) {
+void handleWindowCreate(WindowCreateEvent event) {
   var window = DiamondWindow(event.window);
-
   windows.addFirst(window);
 
   final appId = window.appId;
@@ -675,15 +765,15 @@ void handleWindowHover(PointerMoveEvent event) {
   if (!canSubmitPointerMoveEvents) return;
   var pointer = event.pointer;
 
-  var window = focusedWindow;
+  var focusedWindow_ = focusedWindow;
   if (isFocusedWindowFocusedFromPointer &&
-      window != null &&
-      window.canReceiveInput) {
-    window.window.submitPointerMoveUpdate(PointerUpdate(
+      focusedWindow_ != null &&
+      focusedWindow_.canReceiveInput) {
+    focusedWindow_.window.submitPointerMoveUpdate(PointerUpdate(
       pointer,
       event,
-      (cursor.x - window.window.drawingX).toDouble(),
-      (cursor.y - window.window.drawingY).toDouble(),
+      (cursor.x - focusedWindow_.textureX).toDouble(),
+      (cursor.y - focusedWindow_.textureY).toDouble(),
     ));
     return;
   }
@@ -693,8 +783,8 @@ void handleWindowHover(PointerMoveEvent event) {
     hoveredWindow_.window.submitPointerMoveUpdate(PointerUpdate(
       pointer,
       event,
-      (cursor.x - hoveredWindow_.window.drawingX).toDouble(),
-      (cursor.y - hoveredWindow_.window.drawingY).toDouble(),
+      (cursor.x - hoveredWindow_.textureX).toDouble(),
+      (cursor.y - hoveredWindow_.textureY).toDouble(),
     ));
     return;
   }
@@ -708,10 +798,11 @@ void handleWindowHover(PointerMoveEvent event) {
 }
 
 void handleWindowMove() {
-  focusedWindow?.window.drawingX =
-      windowDrawingPositionAtGrab.x + cursor.x - cursorPositionAtGrab.x;
-  focusedWindow?.window.drawingY =
-      windowDrawingPositionAtGrab.y + cursor.y - cursorPositionAtGrab.y;
+  var window = focusedWindow;
+  if (window == null) return;
+
+  window.x = window.positionAtStartOfGrab.x + cursor.x - cursorPositionAtGrab.x;
+  window.y = window.positionAtStartOfGrab.y + cursor.y - cursorPositionAtGrab.y;
 }
 
 void handleWindowResize() {
@@ -721,32 +812,13 @@ void handleWindowResize() {
   var deltaX = cursor.x - cursorPositionAtGrab.x;
   var deltaY = cursor.y - cursorPositionAtGrab.y;
 
-  num x = windowDrawingPositionAtGrab.x;
-  num y = windowDrawingPositionAtGrab.y;
-  num width = windowWidthAtGrab;
-  num height = windowHeightAtGrab;
+  var width = window.sizeAtStartOfGrab.x;
+  var height = window.sizeAtStartOfGrab.y;
 
-  switch (edgeOfWindowResize) {
-    case WindowEdge.top:
-    case WindowEdge.topLeft:
-    case WindowEdge.topRight:
-      y += deltaY;
-      height -= deltaY;
-      break;
-    case WindowEdge.bottom:
-    case WindowEdge.bottomLeft:
-    case WindowEdge.bottomRight:
-      height += deltaY;
-      break;
-    default:
-      break;
-  }
-
-  switch (edgeOfWindowResize) {
+  switch (window.edgeBeingResized) {
     case WindowEdge.left:
     case WindowEdge.topLeft:
     case WindowEdge.bottomLeft:
-      x += deltaX;
       width -= deltaX;
       break;
     case WindowEdge.right:
@@ -758,29 +830,44 @@ void handleWindowResize() {
       break;
   }
 
-  window.window.drawingX = x;
-  window.window.drawingY = y;
-  window.window.submitNewSize(width: width.toInt(), height: height.toInt());
+  switch (window.edgeBeingResized) {
+    case WindowEdge.top:
+    case WindowEdge.topLeft:
+    case WindowEdge.topRight:
+      height -= deltaY;
+      break;
+    case WindowEdge.bottom:
+    case WindowEdge.bottomLeft:
+    case WindowEdge.bottomRight:
+      height += deltaY;
+      break;
+    default:
+      break;
+  }
+
+  window.window.requestSize(width: width.toInt(), height: height.toInt());
 }
 
 void handlePointerMovement(PointerMoveEvent event) {
   var window = focusedWindow;
-  if (window != null && isGrabbingFocusedWindow && window.canReceiveInput) {
-    var distance = getDistanceBetweenPoints(cursorPositionAtGrab, cursor);
-    if (distance >= 15) {
-      if (window.isMaximized) {
-        window.unmaximize();
+  if (window != null) {
+    if (window.isGrabbed && !window.isMoving && !window.isResizing) {
+      var distance = getDistanceBetweenPoints(cursorPositionAtGrab, cursor);
+      if (distance >= 15) {
+        if (window.isMaximized) {
+          window.unmaximize();
+        }
+        window.startMove();
       }
-      isMovingFocusedWindow = true;
     }
-  }
 
-  if (isMovingFocusedWindow) {
-    handleWindowMove();
-  } else if (isResizingFocusedWindow) {
-    handleWindowResize();
-  } else {
-    handleWindowHover(event);
+    if (window.isMoving) {
+      handleWindowMove();
+    } else if (window.isResizing) {
+      handleWindowResize();
+    } else {
+      handleWindowHover(event);
+    }
   }
 }
 
@@ -826,8 +913,8 @@ void handleNewPointer(PointerDevice pointer) {
             window.window.submitPointerButtonUpdate(PointerUpdate(
               pointer,
               event,
-              (cursor.x - window.window.drawingX).toDouble(),
-              (cursor.y - window.window.drawingY).toDouble(),
+              (cursor.x - window.textureX).toDouble(),
+              (cursor.y - window.textureY).toDouble(),
             ));
           }
         }
@@ -835,7 +922,7 @@ void handleNewPointer(PointerDevice pointer) {
     } else if (hoveredWindow_.canReceiveInput) {
       if (event.isPressed) {
         if (hoveredWindow_.isPopup) {
-          hoveredWindow_.window.focus();
+          hoveredWindow_.window.activate();
           focusedWindow = hoveredWindow_;
         } else if (focusedWindow != hoveredWindow_) {
           focusWindow(hoveredWindow_);
@@ -846,34 +933,43 @@ void handleNewPointer(PointerDevice pointer) {
           hoveredWindow_.window.submitPointerButtonUpdate(PointerUpdate(
             pointer,
             event,
-            (cursor.x - hoveredWindow_.window.drawingX).toDouble(),
-            (cursor.y - hoveredWindow_.window.drawingY).toDouble(),
+            (cursor.x - hoveredWindow_.textureX).toDouble(),
+            (cursor.y - hoveredWindow_.textureY).toDouble(),
           ));
           isFocusedWindowFocusedFromPointer = true;
         }
       } else if (canSubmitPointerButtonEvents) {
         var window = focusedWindow;
         if (window != null && window.canReceiveInput) {
-          if (isMovingFocusedWindow &&
-              window.window.contentY < 0 &&
-              window.isFreeFloating) {
-            window.maximize();
-          }
-
           window.window.submitPointerButtonUpdate(PointerUpdate(
             pointer,
             event,
-            (cursor.x - window.window.drawingX).toDouble(),
-            (cursor.y - window.window.drawingY).toDouble(),
+            (cursor.x - window.textureX).toDouble(),
+            (cursor.y - window.textureY).toDouble(),
           ));
         }
       }
     }
 
     if (!event.isPressed) {
-      isGrabbingFocusedWindow = false;
-      isMovingFocusedWindow = false;
-      isResizingFocusedWindow = false;
+      var window = focusedWindow;
+      if (window != null) {
+        if (window.isGrabbed) {
+          window.release();
+        }
+
+        if (window.isMoving) {
+          if (window.y < 0 && window.isFreeFloating) {
+            window.maximize();
+          }
+          window.stopMove();
+        }
+
+        if (window.isResizing) {
+          window.stopResize();
+        }
+      }
+
       isFocusedWindowFocusedFromPointer = false;
       isBackgroundFocusedFromPointer = false;
     }
@@ -886,8 +982,8 @@ void handleNewPointer(PointerDevice pointer) {
       window.window.submitPointerAxisUpdate(PointerUpdate(
         pointer,
         event,
-        (cursor.x - window.window.drawingX).toDouble(),
-        (cursor.y - window.window.drawingY).toDouble(),
+        (cursor.x - window.textureX).toDouble(),
+        (cursor.y - window.textureY).toDouble(),
       ));
     }
   };
@@ -908,7 +1004,7 @@ void handleWindowSwitching(KeyboardDevice keyboard) {
 
   if (focusedWindow != null) {
     var direction = isShiftKeyPressed ? -1 : 1;
-    windowSwitchIndex = (windowSwitchIndex + direction) % windows.length;
+    windowSwitchIndex = (windowSwitchIndex + direction) % tempWindowList.length;
   }
 
   if (windows.isNotEmpty) {
@@ -1042,7 +1138,7 @@ void main(List<String> arguments) async {
   diamond = diamond_;
 
   diamond_.onNewMonitor = handleNewMonitor;
-  diamond_.onNewWindow = handleNewWindow;
+  diamond_.onWindowCreate = handleWindowCreate;
   diamond_.onNewInput = handleNewInput;
   diamond_.onCursorImage = handleCursorImage;
 
