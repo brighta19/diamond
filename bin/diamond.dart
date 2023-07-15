@@ -1,3 +1,6 @@
+// TODO: Use logging package
+// TODO: Add cursor hotspot
+
 import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
@@ -76,7 +79,7 @@ class DiamondWindow {
   void _setHandlers() {
     window.onDestroying = (event) {
       if (this == hoveredWindow) {
-        cursorImage = null;
+        cursor.image = null;
       }
 
       windows.remove(this);
@@ -85,12 +88,12 @@ class DiamondWindow {
       }
 
       print("${appId.isEmpty ? "An application" : "Application `$appId`"}"
-          "'s 🪟${isPopup ? " popup" : ""} window has been removed!");
+          "'s 🪟 ${isPopup ? " popup" : ""} window has been removed!");
     };
 
     window.onTextureSet = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " has ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " has ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           "'s texture set!");
 
       if (isPopup) {
@@ -107,10 +110,10 @@ class DiamondWindow {
 
     window.onTextureUnsetting = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           "' texture unset!");
 
-      if (this == focusedWindow) {
+      if (!isPopup && this == focusedWindow) {
         unfocusWindow();
 
         var hasFoundThisWindow = false;
@@ -127,7 +130,7 @@ class DiamondWindow {
 
     window.onMoveRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " moved!");
 
       if (!isFullscreen) {
@@ -140,7 +143,7 @@ class DiamondWindow {
 
     window.onResizeRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " resized!");
       print("- Edge: ${event.edge}");
 
@@ -179,7 +182,7 @@ class DiamondWindow {
 
     window.onMaximizeRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " maximized!");
 
       maximize();
@@ -197,7 +200,7 @@ class DiamondWindow {
 
     window.onUnmaximizeRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " unmaximized!");
 
       unmaximize();
@@ -222,18 +225,18 @@ class DiamondWindow {
       }
 
       _isUnmaximizingWindow = false;
-      print("Unmaximized 🪟 window!");
+      print("Unmaximized 🪟  window!");
     };
 
     window.onMinimizeRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " minimized!");
     };
 
     window.onFullscreenRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " fullscreened!");
 
       fullscreen();
@@ -251,7 +254,7 @@ class DiamondWindow {
 
     window.onUnfullscreenRequest = (event) {
       print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-          " wants ${title.isEmpty ? "its 🪟 window" : "the 🪟 window '$title'"}"
+          " wants ${title.isEmpty ? "its 🪟  window" : "the 🪟  window '$title'"}"
           " unfullscreened!");
 
       unfullscreen();
@@ -269,11 +272,11 @@ class DiamondWindow {
       }
 
       _isUnfullscreeningWindow = false;
-      print("Unfullscreened 🪟 window!");
+      print("Unfullscreened 🪟  window!");
     };
 
     window.onPopupCreate = (event) {
-      print("A 🪟 popup window has been added!");
+      print("A 🪟  popup window has been added!");
 
       var popup = DiamondWindow(event.window);
       popup.parent = this;
@@ -281,7 +284,7 @@ class DiamondWindow {
     };
 
     window.onParentChange = (event) {
-      print("The 🪟 window's parent has changed!");
+      print("The 🪟  window's parent has changed!");
     };
   }
 
@@ -294,8 +297,8 @@ class DiamondWindow {
   }
 
   void grab() {
-    cursorPositionAtGrab.x = cursor.x;
-    cursorPositionAtGrab.y = cursor.y;
+    cursorPositionAtGrab.x = cursor.position.x;
+    cursorPositionAtGrab.y = cursor.position.y;
     positionAtStartOfGrab.x = x;
     positionAtStartOfGrab.y = y;
     sizeAtStartOfGrab.x = width;
@@ -353,7 +356,7 @@ class DiamondWindow {
 
     if (isFullscreen) {
       window.unfullscreen();
-      print("Unfullscreening 🪟 window before maximizing...");
+      print("Unfullscreening 🪟  window before maximizing...");
     } else {
       freeFloatingPosition.x = x;
       freeFloatingPosition.y = y;
@@ -385,7 +388,7 @@ class DiamondWindow {
     if (isMaximized) {
       window.unmaximize();
       _wasMaximizedBeforeFullscreened = true;
-      print("Unmaximizing 🪟 window before fullscreening...");
+      print("Unmaximizing 🪟  window before fullscreening...");
     } else {
       freeFloatingPosition.x = x;
       freeFloatingPosition.y = y;
@@ -459,6 +462,14 @@ class DiamondWindow {
   }
 }
 
+class DiamondCursor {
+  Image? image;
+  Vector hotspot = Vector(0.0, 0.0);
+  Vector position = Vector(0.0, 0.0);
+
+  DiamondCursor();
+}
+
 const backgroundColors = [
   0x333355ff,
   0xffaaaaff,
@@ -469,7 +480,6 @@ const wallpaperImagePath = "../assets/cubes.png";
 
 Waybright? diamond;
 
-Image? cursorImage;
 Image? wallpaperImage;
 
 var monitors = <Monitor>[];
@@ -481,7 +491,7 @@ Monitor? currentMonitor;
 var isFocusedWindowFocusedFromPointer = false;
 var isBackgroundFocusedFromPointer = false;
 
-var cursor = Vector(0.0, 0.0);
+var cursor = DiamondCursor();
 var cursorPositionAtGrab = Vector(0.0, 0.0);
 
 var windowSwitchIndex = 0;
@@ -506,12 +516,12 @@ bool get canSubmitPointerButtonEvents => !isSwitchingWindows;
 bool get canSubmitPointerScrollEvents => !isSwitchingWindows;
 
 bool get doesWindowWantBlankCursor =>
-    !isSwitchingWindows && hoveredWindow != null && cursorImage == null;
+    !isSwitchingWindows && hoveredWindow != null && cursor.image == null;
 
 DiamondWindow? focusedWindow;
 DiamondWindow? get hoveredWindow => getHoveredWindowFromList(windows);
 
-bool canImageBeDrawn(Image? image) => image?.isReady ?? false;
+bool canImageBeDrawn(Image? image) => image?.isLoaded ?? false;
 
 double getDistanceBetweenPoints(Vector point1, Vector point2) {
   var x = point1.x - point2.x;
@@ -536,7 +546,7 @@ void moveWindowToFront(DiamondWindow window) {
 
 void focusWindow(DiamondWindow window) {
   if (focusedWindow == window) return;
-  print("Redirecting 🪟 window 🔎 focus...");
+  print("Redirecting 🪟  window 🔎 focus...");
 
   if (focusedWindow != null) {
     focusedWindow?.window.deactivate();
@@ -549,17 +559,17 @@ void focusWindow(DiamondWindow window) {
 
 void unfocusWindow() {
   if (focusedWindow == null) return;
-  print("🔎 Unfocusing 🪟 window...");
+  print("🔎 Unfocusing 🪟  window...");
 
   focusedWindow?.window.deactivate();
   focusedWindow = null;
 }
 
 bool isCursorOnWindow(DiamondWindow window) {
-  return window.x <= cursor.x &&
-      window.y <= cursor.y &&
-      window.x + window.width >= cursor.x &&
-      window.y + window.height >= cursor.y;
+  return window.x <= cursor.position.x &&
+      window.y <= cursor.position.y &&
+      window.x + window.width >= cursor.position.x &&
+      window.y + window.height >= cursor.position.y;
 }
 
 DiamondWindow? getHoveredWindowFromList(Queue<DiamondWindow> windows) {
@@ -577,11 +587,11 @@ DiamondWindow? getHoveredWindowFromList(Queue<DiamondWindow> windows) {
 void drawCursor(Renderer renderer) {
   if (doesWindowWantBlankCursor) {
     return;
-  } else if (canImageBeDrawn(cursorImage)) {
+  } else if (canImageBeDrawn(cursor.image)) {
     renderer.drawImage(
-      cursorImage!,
-      cursor.x + cursorImage!.offsetX,
-      cursor.y + cursorImage!.offsetY,
+      cursor.image!,
+      cursor.position.x - cursor.hotspot.x,
+      cursor.position.y - cursor.hotspot.y,
     );
     return;
   }
@@ -598,9 +608,9 @@ void drawCursor(Renderer renderer) {
   }
 
   renderer.fillStyle = borderColor;
-  renderer.fillRect(cursor.x - 2, cursor.y - 2, 5, 5);
+  renderer.fillRect(cursor.position.x - 2, cursor.position.y - 2, 5, 5);
   renderer.fillStyle = color;
-  renderer.fillRect(cursor.x - 1, cursor.y - 1, 3, 3);
+  renderer.fillRect(cursor.position.x - 1, cursor.position.y - 1, 3, 3);
 }
 
 void drawPopups(Renderer renderer, DiamondWindow window) {
@@ -725,8 +735,8 @@ void initializeMonitor(Monitor monitor) {
   if (monitors.length == 1) {
     currentMonitor = monitor;
 
-    cursor.x = monitor.mode.width / 2;
-    cursor.y = monitor.mode.height / 2;
+    cursor.position.x = monitor.mode.width / 2;
+    cursor.position.y = monitor.mode.height / 2;
 
     monitor.onFrame = (event) => handleCurrentMonitorFrame();
   } else {
@@ -756,7 +766,7 @@ void handleWindowCreate(WindowCreateEvent event) {
   final title = window.title;
 
   print("${appId.isEmpty ? "An application" : "Application '$appId'"}"
-      "'s 🪟${window.isPopup ? " popup" : ""} window has been added!");
+      "'s 🪟 ${window.isPopup ? " popup" : ""} window has been added!");
 
   if (title.isNotEmpty) print("- Title: '$title'");
 }
@@ -772,8 +782,8 @@ void handleWindowHover(PointerMoveEvent event) {
     focusedWindow_.window.submitPointerMoveUpdate(PointerUpdate(
       pointer,
       event,
-      (cursor.x - focusedWindow_.textureX).toDouble(),
-      (cursor.y - focusedWindow_.textureY).toDouble(),
+      (cursor.position.x - focusedWindow_.textureX).toDouble(),
+      (cursor.position.y - focusedWindow_.textureY).toDouble(),
     ));
     return;
   }
@@ -783,13 +793,13 @@ void handleWindowHover(PointerMoveEvent event) {
     hoveredWindow_.window.submitPointerMoveUpdate(PointerUpdate(
       pointer,
       event,
-      (cursor.x - hoveredWindow_.textureX).toDouble(),
-      (cursor.y - hoveredWindow_.textureY).toDouble(),
+      (cursor.position.x - hoveredWindow_.textureX).toDouble(),
+      (cursor.position.y - hoveredWindow_.textureY).toDouble(),
     ));
     return;
   }
 
-  cursorImage = null;
+  cursor.image = null;
   for (var inputDevice in inputDevices) {
     if (inputDevice is PointerDevice) {
       inputDevice.clearFocus();
@@ -801,16 +811,20 @@ void handleWindowMove() {
   var window = focusedWindow;
   if (window == null) return;
 
-  window.x = window.positionAtStartOfGrab.x + cursor.x - cursorPositionAtGrab.x;
-  window.y = window.positionAtStartOfGrab.y + cursor.y - cursorPositionAtGrab.y;
+  window.x = window.positionAtStartOfGrab.x +
+      cursor.position.x -
+      cursorPositionAtGrab.x;
+  window.y = window.positionAtStartOfGrab.y +
+      cursor.position.y -
+      cursorPositionAtGrab.y;
 }
 
 void handleWindowResize() {
   var window = focusedWindow;
   if (window == null) return;
 
-  var deltaX = cursor.x - cursorPositionAtGrab.x;
-  var deltaY = cursor.y - cursorPositionAtGrab.y;
+  var deltaX = cursor.position.x - cursorPositionAtGrab.x;
+  var deltaY = cursor.position.y - cursorPositionAtGrab.y;
 
   var width = window.sizeAtStartOfGrab.x;
   var height = window.sizeAtStartOfGrab.y;
@@ -852,7 +866,8 @@ void handlePointerMovement(PointerMoveEvent event) {
   var window = focusedWindow;
   if (window != null) {
     if (window.isGrabbed && !window.isMoving && !window.isResizing) {
-      var distance = getDistanceBetweenPoints(cursorPositionAtGrab, cursor);
+      var distance =
+          getDistanceBetweenPoints(cursorPositionAtGrab, cursor.position);
       if (distance >= 15) {
         if (window.isMaximized) {
           window.unmaximize();
@@ -874,7 +889,7 @@ void handlePointerMovement(PointerMoveEvent event) {
 void focusOnBackground() {
   if (focusedWindow != null) {
     unfocusWindow();
-    print("Removed 🪟 window 🔎 focus.");
+    print("Removed 🪟  window 🔎 focus.");
   }
   isBackgroundFocusedFromPointer = true;
 }
@@ -885,8 +900,10 @@ void handleNewPointer(PointerDevice pointer) {
     if (monitor == null) throw NoMonitorFoundException();
 
     var speed = 0.5; // my preference
-    cursor.x = (cursor.x + event.deltaX * speed).clamp(0, monitor.mode.width);
-    cursor.y = (cursor.y + event.deltaY * speed).clamp(0, monitor.mode.height);
+    cursor.position.x =
+        (cursor.position.x + event.deltaX * speed).clamp(0, monitor.mode.width);
+    cursor.position.y = (cursor.position.y + event.deltaY * speed)
+        .clamp(0, monitor.mode.height);
 
     handlePointerMovement(event);
   };
@@ -895,8 +912,8 @@ void handleNewPointer(PointerDevice pointer) {
     if (monitor == null) throw NoMonitorFoundException();
     if (event.monitor != monitor) return;
 
-    cursor.x = event.x.clamp(0, monitor.mode.width);
-    cursor.y = event.y.clamp(0, monitor.mode.height);
+    cursor.position.x = event.x.clamp(0, monitor.mode.width);
+    cursor.position.y = event.y.clamp(0, monitor.mode.height);
 
     handlePointerMovement(event);
   };
@@ -913,8 +930,8 @@ void handleNewPointer(PointerDevice pointer) {
             window.window.submitPointerButtonUpdate(PointerUpdate(
               pointer,
               event,
-              (cursor.x - window.textureX).toDouble(),
-              (cursor.y - window.textureY).toDouble(),
+              (cursor.position.x - window.textureX).toDouble(),
+              (cursor.position.y - window.textureY).toDouble(),
             ));
           }
         }
@@ -933,8 +950,8 @@ void handleNewPointer(PointerDevice pointer) {
           hoveredWindow_.window.submitPointerButtonUpdate(PointerUpdate(
             pointer,
             event,
-            (cursor.x - hoveredWindow_.textureX).toDouble(),
-            (cursor.y - hoveredWindow_.textureY).toDouble(),
+            (cursor.position.x - hoveredWindow_.textureX).toDouble(),
+            (cursor.position.y - hoveredWindow_.textureY).toDouble(),
           ));
           isFocusedWindowFocusedFromPointer = true;
         }
@@ -944,8 +961,8 @@ void handleNewPointer(PointerDevice pointer) {
           window.window.submitPointerButtonUpdate(PointerUpdate(
             pointer,
             event,
-            (cursor.x - window.textureX).toDouble(),
-            (cursor.y - window.textureY).toDouble(),
+            (cursor.position.x - window.textureX).toDouble(),
+            (cursor.position.y - window.textureY).toDouble(),
           ));
         }
       }
@@ -982,14 +999,14 @@ void handleNewPointer(PointerDevice pointer) {
       window.window.submitPointerAxisUpdate(PointerUpdate(
         pointer,
         event,
-        (cursor.x - window.textureX).toDouble(),
-        (cursor.y - window.textureY).toDouble(),
+        (cursor.position.x - window.textureX).toDouble(),
+        (cursor.position.y - window.textureY).toDouble(),
       ));
     }
   };
   pointer.onRemove = (event) {
     inputDevices.remove(pointer);
-    print("A 🖱️ pointer has been removed!");
+    print("A 🖱️  pointer has been removed!");
     print("- Name: '${pointer.name}'");
   };
 }
@@ -997,7 +1014,7 @@ void handleNewPointer(PointerDevice pointer) {
 void handleWindowSwitching(KeyboardDevice keyboard) {
   if (!isSwitchingWindows) {
     isSwitchingWindows = true;
-    cursorImage = null;
+    cursor.image = null;
     windowSwitchIndex = 0;
     tempWindowList = windows.toList();
   }
@@ -1020,7 +1037,7 @@ void handleWindowSwitching(KeyboardDevice keyboard) {
 
 void launchTerminal() {
   Isolate.run(() {
-    print("Launching 🖥️ Terminal '$terminalProgram' ...");
+    print("Launching 🖥️  Terminal '$terminalProgram' ...");
     try {
       Process.runSync(terminalProgram, []);
     } catch (e) {
@@ -1105,7 +1122,7 @@ void handleNewKeyboard(KeyboardDevice keyboard) {
   };
   keyboard.onRemove = (event) {
     inputDevices.remove(keyboard);
-    print("A ⌨️ keyboard has been removed!");
+    print("A ⌨️  keyboard has been removed!");
     print("- Name: '${keyboard.name}'");
   };
 }
@@ -1116,13 +1133,13 @@ void handleNewInput(NewInputEvent event) {
 
   if (pointer != null) {
     inputDevices.add(pointer);
-    print("A 🖱️ pointer has been added!");
+    print("A 🖱️  pointer has been added!");
     print("- Name: '${pointer.name}'");
 
     handleNewPointer(pointer);
   } else if (keyboard != null) {
     inputDevices.add(keyboard);
-    print("A ⌨️ keyboard has been added!");
+    print("A ⌨️  keyboard has been added!");
     print("- Name: '${keyboard.name}'");
 
     handleNewKeyboard(keyboard);
@@ -1130,7 +1147,28 @@ void handleNewInput(NewInputEvent event) {
 }
 
 void handleCursorImage(CursorImageEvent event) {
-  cursorImage = event.image;
+  cursor.image = event.image;
+  cursor.hotspot.x = event.hotspotX;
+  cursor.hotspot.y = event.hotspotY;
+}
+
+Map<String, String> getOptions(List<String> arguments) {
+  var options = <String, String>{};
+
+  for (var i = 0; i < arguments.length; i++) {
+    var argument = arguments[i];
+    if (argument.startsWith("-")) {
+      var option = argument.substring(1);
+      try {
+        var value = arguments[i + 1];
+        options[option] = value;
+      } catch (e) {
+        options[option] = "";
+      }
+    }
+  }
+
+  return options;
 }
 
 void main(List<String> arguments) async {
@@ -1142,26 +1180,32 @@ void main(List<String> arguments) async {
   diamond_.onNewInput = handleNewInput;
   diamond_.onCursorImage = handleCursorImage;
 
+  var options = getOptions(arguments);
+  var wallpaperPath = options["i"] ?? wallpaperImagePath;
+  var program = options["p"];
+
   try {
-    print("Loading 🖼️ wallpaper '$wallpaperImagePath'...");
-    wallpaperImage = await diamond_.loadPngImage(wallpaperImagePath);
+    print("Loading 🖼️  wallpaper '$wallpaperPath'...");
+    wallpaperImage = await diamond_.loadImage(wallpaperPath);
+    if (wallpaperImage?.isLoaded ?? false) {
+      print("🖼️  Wallpaper loaded!");
+    } else {
+      wallpaperImage?.onLoad = (event) => print("🖼️  Wallpaper loaded!");
+    }
   } catch (e) {
-    stderr.writeln("Failed to load 🖼️ wallpaper '$wallpaperImagePath': $e");
+    stderr.writeln("Failed to load 🖼️  wallpaper '$wallpaperPath': $e");
   }
 
   try {
     var socketName = diamond_.openSocket();
     print("~~~ Socket opened on '$socketName' ~~~");
 
-    if (arguments.length == 2) {
-      if (arguments[0] == "-p") {
-        var program = arguments[1];
-        print("Running program '$program' ...");
-        try {
-          Isolate.run(() => Process.runSync(program, []));
-        } catch (e) {
-          stderr.writeln("Failed to run program '$program': $e");
-        }
+    if (program != null) {
+      print("Running 🖥️  program '$program' ...");
+      try {
+        Isolate.run(() => Process.runSync(program, []));
+      } catch (e) {
+        stderr.writeln("Failed to run 🖥️  program '$program': $e");
       }
     }
   } catch (e) {
