@@ -65,8 +65,8 @@ class DiamondWindow {
 
   var edgeBeingResized = WindowEdge.none;
 
-  String get appId => window.applicationId;
-  String get title => window.title;
+  String get appId => window.applicationId ?? "";
+  String get title => window.title ?? "";
   bool get isPopup => window.isPopup;
   bool get isMaximized => window.isMaximized;
   bool get isFullscreen => window.isFullscreen;
@@ -607,9 +607,9 @@ void drawCursor(Renderer renderer) {
     color = 0x000000ff;
   }
 
-  renderer.fillStyle = borderColor;
+  renderer.fillColor = borderColor;
   renderer.fillRect(cursor.position.x - 2, cursor.position.y - 2, 5, 5);
-  renderer.fillStyle = color;
+  renderer.fillColor = color;
   renderer.fillRect(cursor.position.x - 1, cursor.position.y - 1, 3, 3);
 }
 
@@ -696,13 +696,19 @@ void handleCurrentMonitorFrame() {
 
   var renderer = monitor.renderer;
 
+  renderer.begin();
+  renderer.clear();
+
   drawWallpaper(renderer);
 
-  renderer.fillStyle = 0x6666ffff;
+  renderer.fillColor = 0x6666ffff;
   renderer.fillRect(50, 50, 100, 100);
 
   drawWindows(renderer);
   drawCursor(renderer);
+
+  renderer.end();
+  renderer.render();
 }
 
 void initializeMonitor(Monitor monitor) {
@@ -719,7 +725,7 @@ void initializeMonitor(Monitor monitor) {
   if (preferredMode != null) monitor.mode = preferredMode;
   monitor.enable();
 
-  monitor.onRemove = (event) {
+  monitor.onRemoving = (event) {
     monitors.remove(monitor);
     print("A 📺 monitor has been removed!");
     print("- Name: '${monitor.name}'");
@@ -729,7 +735,7 @@ void initializeMonitor(Monitor monitor) {
     }
   };
 
-  monitor.renderer.backgroundColor =
+  monitor.renderer.clearColor =
       backgroundColors[(monitors.length - 1) % backgroundColors.length];
 
   if (monitors.length == 1) {
@@ -743,13 +749,19 @@ void initializeMonitor(Monitor monitor) {
     var renderer = monitor.renderer;
 
     monitor.onFrame = (event) {
-      renderer.fillStyle = 0xffdd66ff;
+      renderer.begin();
+      renderer.clear();
+
+      renderer.fillColor = 0xffdd66ff;
       renderer.fillRect(50, 50, 100, 100);
+
+      renderer.end();
+      renderer.render();
     };
   }
 }
 
-void handleNewMonitor(NewMonitorEvent event) {
+void handleNewMonitor(MonitorAddEvent event) {
   Monitor monitor = event.monitor;
   monitors.add(monitor);
 
@@ -1172,13 +1184,11 @@ Map<String, String> getOptions(List<String> arguments) {
 }
 
 void main(List<String> arguments) async {
-  var diamond_ = Waybright();
-  diamond = diamond_;
-
-  diamond_.onNewMonitor = handleNewMonitor;
-  diamond_.onWindowCreate = handleWindowCreate;
-  diamond_.onNewInput = handleNewInput;
-  diamond_.onCursorImage = handleCursorImage;
+  diamond = Waybright()
+    ..onMonitorAdd = handleNewMonitor
+    ..onWindowCreate = handleWindowCreate
+    ..onNewInput = handleNewInput
+    ..onCursorImage = handleCursorImage;
 
   var options = getOptions(arguments);
   var wallpaperPath = options["i"] ?? wallpaperImagePath;
@@ -1186,7 +1196,7 @@ void main(List<String> arguments) async {
 
   try {
     print("Loading 🖼️  wallpaper '$wallpaperPath'...");
-    wallpaperImage = await diamond_.loadImage(wallpaperPath);
+    wallpaperImage = await diamond?.loadImage(wallpaperPath);
     if (wallpaperImage?.isLoaded ?? false) {
       print("🖼️  Wallpaper loaded!");
     } else {
@@ -1197,7 +1207,7 @@ void main(List<String> arguments) async {
   }
 
   try {
-    var socketName = diamond_.openSocket();
+    var socketName = diamond?.openSocket();
     print("~~~ Socket opened on '$socketName' ~~~");
 
     if (program != null) {

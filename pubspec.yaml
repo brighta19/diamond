@@ -10,7 +10,7 @@ dependencies:
   waybright:
     git:
       url: https://github.com/brighta19/waybright.git
-      ref: 8be8668f9f18cefdec995b189b5b391d395450c4
+      ref: b1ed744bf5543ac0e7dc9534f6303909b3bf4b30
     # path: '../waybright'
 
 dev_dependencies:
